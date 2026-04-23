@@ -37,16 +37,19 @@ const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
 const LKEY="plan-mejora-local"; // localStorage backup key
 
 async function dbLoad(){
-  // 1. Try Supabase (source of truth)
+  // 1. Try Supabase
   try{
     const{data,error}=await sb.from("app_data").select("value").eq("key",SKEY).single();
-    if(data&&!error){
+    // Note: "PGRST116" = row not found (not an error, just empty)
+    if(error&&error.code!=="PGRST116"){
+      console.warn("Supabase load error:",error.message||JSON.stringify(error));
+    } else if(data&&data.value){
       const parsed=JSON.parse(data.value);
-      try{localStorage.setItem(LKEY,data.value);}catch(e){} // sync to local
+      try{localStorage.setItem(LKEY,data.value);}catch(e){}
       return{data:parsed,source:"cloud"};
     }
-  }catch(e){console.warn("Supabase load failed:",e);}
-  // 2. Fall back to localStorage
+  }catch(e){console.warn("Supabase load exception:",e);}
+  // 2. Fallback to localStorage
   try{
     const local=localStorage.getItem(LKEY);
     if(local)return{data:JSON.parse(local),source:"local"};
@@ -56,16 +59,43 @@ async function dbLoad(){
 
 async function dbSave(v){
   const str=JSON.stringify(v);
-  // Always save to localStorage first (instant, never fails)
-  try{localStorage.setItem(LKEY,str);}catch(e){console.warn("localStorage save failed:",e);}
-  // Then save to Supabase
+  // 1. Always save to localStorage first
+  try{localStorage.setItem(LKEY,str);}catch(e){console.warn("localStorage failed:",e);}
+  // 2. Save to Supabase — IMPORTANT: supabase-js never throws, must check {error}
   try{
-    await sb.from("app_data").upsert({key:SKEY,value:str,updated_at:new Date().toISOString()});
+    const{error}=await sb.from("app_data")
+      .upsert({key:SKEY,value:str,updated_at:new Date().toISOString()},{onConflict:"key"});
+    if(error){
+      console.error("Supabase upsert error:",error);
+      return{ok:false,error:error.message||JSON.stringify(error)};
+    }
     return{ok:true};
   }catch(e){
-    console.error("Supabase save failed:",e);
-    return{ok:false,error:e.message};
+    console.error("Supabase exception:",e);
+    return{ok:false,error:e.message||String(e)};
   }
+}
+
+// Diagnostic: tests write + read + verify against Supabase
+async function testSupabase(){
+  const tKey="test-conn-"+Date.now();
+  const tVal="ping-"+Date.now();
+  // Write
+  try{
+    const{error}=await sb.from("app_data")
+      .upsert({key:tKey,value:tVal,updated_at:new Date().toISOString()},{onConflict:"key"});
+    if(error)return{ok:false,step:"escritura",msg:error.message||JSON.stringify(error)};
+  }catch(e){return{ok:false,step:"escritura",msg:e.message||String(e)};}
+  // Read back
+  try{
+    const{data,error}=await sb.from("app_data").select("value").eq("key",tKey).single();
+    if(error)return{ok:false,step:"lectura",msg:error.message||JSON.stringify(error)};
+    if(!data)return{ok:false,step:"lectura",msg:"No se encontró el registro recién guardado"};
+    if(data.value!==tVal)return{ok:false,step:"verificación",msg:"El valor leído no coincide con el guardado"};
+    // Cleanup
+    await sb.from("app_data").delete().eq("key",tKey);
+    return{ok:true};
+  }catch(e){return{ok:false,step:"lectura",msg:e.message||String(e)};}
 }
 
 // ── Layers
@@ -193,6 +223,10 @@ function App(){
   const [arrows,setArrows]=useState([]);
   const [svgDims,setSvgDims]=useState({w:0,h:0});
   const [loginOpen,setLoginOpen]=useState(false);
+  const [diagOpen,setDiagOpen]=useState(false);
+  const [diagResult,setDiagResult]=useState(null);
+  const [diagRunning,setDiagRunning]=useState(false);
+  const runDiag=async()=>{setDiagRunning(true);setDiagResult(null);const r=await testSupabase();setDiagResult(r);setDiagRunning(false);};
   const saveTimer=useRef(null);
   const cardRefs=useRef({});
   const scrollRef=useRef(null);
@@ -319,11 +353,12 @@ function App(){
           }}>
             {saveStatus==="ok"&&"☁ guardado"}
             {saveStatus==="saving"&&"⏳ guardando…"}
-            {saveStatus==="local"&&"⚠ solo local"}
-            {saveStatus==="error"&&"✗ error"}
+            {saveStatus==="local"&&<span onClick={()=>setDiagOpen(true)} style={{cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"}}>⚠ no llega a Supabase</span>}
+            {saveStatus==="error"&&<span onClick={()=>setDiagOpen(true)} style={{cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"}}>✗ error al guardar</span>}
           </span>}
           {canEdit&&dataSource==="local"&&<span style={{fontSize:"8px",color:"#f59e0b",background:"#451a0320",border:"1px solid #92400e",padding:"2px 7px",borderRadius:3}}>⚠ cargado de copia local</span>}
           {canEdit&&<button title="Guardar ahora en Supabase" onClick={()=>{setSaveStatus("saving");dbSave(D).then(r=>{setSaveStatus(r.ok?"ok":"local");setSaved(r.ok);});}} style={{...BTN,padding:"3px 8px",fontSize:"9px",borderColor:"#1e3a5f",color:"#334155"}}>💾</button>}
+          <button onClick={()=>setDiagOpen(true)} title="Diagnóstico de conexión" style={{...BTN,padding:"3px 8px",fontSize:"9px",borderColor:"#1e3a5f",color:"#334155"}}>🔍</button>
           {!isPublicView&&<button onClick={()=>setShowFlow(f=>!f)} style={{...BTN,background:showFlow?"#1d4ed8":"transparent",color:showFlow?"#fff":"#94a3b8",borderColor:showFlow?"#3b82f6":"#334155"}}>{showFlow?"◈ Flujo ON":"◈ Flujo OFF"}</button>}
           {canEdit&&<button onClick={()=>exportCSV(D)} style={BTN}>↓ CSV</button>}
           {canEdit&&<button onClick={()=>setPanel(p=>p==="settings"?null:"settings")} style={{...BTN,borderColor:panel==="settings"?"#3b82f6":"#334155",color:panel==="settings"?"#60a5fa":"#94a3b8"}}>⚙ Config</button>}
@@ -370,6 +405,79 @@ function App(){
 
       {/* Login modal */}
       {loginOpen&&<LoginModal D={D} onLogin={role=>{setLayer(role);setLoginOpen(false);}} onClose={()=>setLoginOpen(false)}/>}
+      {diagOpen&&<DiagModal running={diagRunning} result={diagResult} onRun={runDiag} onClose={()=>{setDiagOpen(false);setDiagResult(null);}}/>}
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// DIAGNOSTIC MODAL
+// ────────────────────────────────────────────────────────────────
+function DiagModal({running,result,onRun,onClose}){
+  return(
+    <div className="modal-bg" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:"#0d1520",border:"1px solid #1e3a5f",borderRadius:8,padding:"28px",width:420,display:"flex",flexDirection:"column",gap:18}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:"8px",letterSpacing:"4px",color:"#3b82f6",marginBottom:3}}>HERRAMIENTA DE DIAGNÓSTICO</div>
+            <div style={{fontSize:"17px",fontWeight:800,color:"#f1f5f9"}}>Conexión con Supabase</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"20px",lineHeight:1}}>✕</button>
+        </div>
+
+        <div style={{fontSize:"12px",color:"#64748b",lineHeight:1.7}}>
+          Esta prueba escribe un valor de prueba en Supabase, lo lee de vuelta y verifica que coincide. Si falla te dirá exactamente en qué paso y por qué.
+        </div>
+
+        {/* Status boxes */}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {[
+            {label:"URL de Supabase",val:SUPA_URL,ok:true},
+            {label:"Clave anon",val:SUPA_KEY.slice(0,30)+"…",ok:true},
+            {label:"Clave de datos (SKEY)",val:SKEY,ok:true},
+          ].map(item=>(
+            <div key={item.label} style={{display:"flex",gap:10,alignItems:"center",padding:"6px 10px",background:"#111d2e",borderRadius:4}}>
+              <span style={{fontSize:"9px",color:"#22c55e"}}>✓</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:"8px",color:"#334155",letterSpacing:"1px"}}>{item.label}</div>
+                <div style={{fontSize:"10px",color:"#64748b",fontFamily:"monospace"}}>{item.val}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Test result */}
+        {result&&(
+          <div style={{padding:"14px",background:result.ok?"#052e18":"#2d0a0a",border:`1px solid ${result.ok?"#166534":"#7f1d1d"}`,borderRadius:6}}>
+            {result.ok
+              ?<div><div style={{fontSize:"14px",fontWeight:700,color:"#22c55e",marginBottom:4}}>✓ Conexión correcta</div><div style={{fontSize:"12px",color:"#4ade80"}}>Escritura, lectura y verificación completadas. Supabase está funcionando correctamente.</div></div>
+              :<div>
+                <div style={{fontSize:"14px",fontWeight:700,color:"#ef4444",marginBottom:4}}>✗ Fallo en: {result.step}</div>
+                <div style={{fontSize:"11px",color:"#fca5a5",fontFamily:"monospace",wordBreak:"break-all",lineHeight:1.6}}>{result.msg}</div>
+                <div style={{marginTop:10,fontSize:"11px",color:"#9ca3af",lineHeight:1.6}}>
+                  <strong style={{color:"#cbd5e1"}}>Posibles causas:</strong><br/>
+                  • El proyecto de Supabase está pausado (entra en supabase.com y reactívalo)<br/>
+                  • La tabla app_data no existe (re-ejecuta el SQL del setup)<br/>
+                  • Problema de red o CORS
+                </div>
+              </div>
+            }
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={onRun} disabled={running}
+            style={{flex:2,background:running?"#1e293b":"#1d4ed8",border:"none",color:running?"#475569":"#fff",padding:"10px",cursor:running?"default":"pointer",fontSize:"11px",borderRadius:4,fontFamily:"inherit",fontWeight:700}}>
+            {running?"⏳ Probando conexión…":"🔍 Ejecutar diagnóstico"}
+          </button>
+          <button onClick={onClose} style={{flex:1,background:"transparent",border:"1px solid #334155",color:"#94a3b8",padding:"10px",cursor:"pointer",fontSize:"11px",borderRadius:4,fontFamily:"inherit"}}>Cerrar</button>
+        </div>
+
+        <div style={{fontSize:"9px",color:"#1e3a5f",lineHeight:1.6,borderTop:"1px solid #1e2d40",paddingTop:12}}>
+          Si el diagnóstico falla, abre la consola del navegador (F12 → Console) y busca mensajes de error rojos. Compártelos para poder resolver el problema.
+        </div>
+      </div>
     </div>
   );
 }
