@@ -94,7 +94,7 @@ function migrate(d){
 }
 
 const uid=()=>Math.random().toString(36).slice(2,8);
-const LW=162,CW=208;
+const LW=162,CW=248;
 const INP={background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",padding:"7px 9px",fontSize:"12px",borderRadius:4,fontFamily:"inherit",outline:"none",width:"100%",boxSizing:"border-box"};
 const BTN={background:"transparent",border:"1px solid #334155",color:"#94a3b8",cursor:"pointer",padding:"5px 12px",fontSize:"10px",letterSpacing:"0.5px",borderRadius:4,fontFamily:"inherit"};
 
@@ -285,8 +285,16 @@ function App(){
           {/* SVG arrows */}
           {showFlow&&arrows.length>0&&(
             <svg style={{position:"absolute",top:0,left:0,pointerEvents:"none",zIndex:88}} width={svgDims.w} height={svgDims.h}>
-              <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,1.5 L7,4 L0,6.5 Z" fill="#60a5fa"/></marker></defs>
-              {arrows.map(a=>{const pad=18,mx=a.x1+pad,path=Math.abs(a.y1-a.y2)<3?`M${a.x1},${a.y1} H${a.x2}`:`M${a.x1},${a.y1} H${mx} V${a.y2} H${a.x2}`;return <path key={a.id} d={path} stroke="#60a5fa" strokeWidth="1.5" fill="none" strokeOpacity="0.65" markerEnd="url(#ah)"/>;})}
+              <defs><marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,1.5 L9,5 L0,8.5 Z" fill="#60a5fa"/></marker></defs>
+              {arrows.map(a=>{
+            const dx=a.x2-a.x1,dy=a.y2-a.y1;
+            const pad=Math.min(28,Math.max(14,dx*0.2));
+            const mx=a.x1+pad;
+            const path=Math.abs(dy)<4
+              ?`M${a.x1},${a.y1} H${a.x2}`
+              :`M${a.x1},${a.y1} H${mx} V${a.y2} H${a.x2}`;
+            return <path key={a.id} d={path} stroke="#60a5fa" strokeWidth="1.8" fill="none" strokeOpacity="0.75" markerEnd="url(#ah)"/>;
+          })}}
             </svg>
           )}
         </div>
@@ -378,7 +386,7 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
             let cc=D.cards.filter(c=>c.rowId===row.id&&c.colId===col.id);
             if(isPublic)cc=cc.filter(c=>c.publicado);
             return(
-              <div key={"C"+row.id+col.id} style={{background:bg,borderLeft:"1px solid #1e2d40",borderBottom:"1px solid #1e2d40",padding:"7px",minHeight:110,display:"flex",flexDirection:"column",gap:0}}>
+              <div key={"C"+row.id+col.id} style={{background:bg,borderLeft:"1px solid #1e2d40",borderBottom:"1px solid #1e2d40",padding:"10px 12px",minHeight:130,display:"flex",flexDirection:"column",gap:0}}>
                 {getCellGroups(cc).map((grp,gi)=>(
                   <CellGroup key={gi} group={grp} D={D} col={col} layer={layer}
                     isVisible={isVisible} hasFilter={hasFilter}
@@ -421,7 +429,7 @@ function CellGroup({group,D,col,layer,isVisible,hasFilter,hlId,related,onEdit,on
   });
 
   if(!group.isGroup){
-    return <div style={{marginBottom:6}}><CardChip {...chipProps(group.cards[0])}/></div>;
+    return <div style={{marginBottom:8}}><CardChip {...chipProps(group.cards[0])}/></div>;
   }
 
   return(
@@ -521,8 +529,7 @@ function CardChip({card,D,col,layer,visible,hasFilter,highlighted,dimmed,onClick
             {card.publicado?"PUB":"—"}
           </span>
         )}
-        {layer===L.S&&<button onClick={onHl} style={{background:"none",border:"none",color:highlighted?col.hl:"#2d4060",cursor:"pointer",padding:"0 2px",fontSize:"13px",lineHeight:1,flexShrink:0}}>◎</button>}
-        {canEdit&&<button onClick={onHl} style={{background:"none",border:"none",color:highlighted?col.hl:"#2d4060",cursor:"pointer",padding:"0 2px",fontSize:"13px",lineHeight:1,flexShrink:0}}>◎</button>}
+        {(layer===L.S||canEdit)&&<button onClick={onHl} title="Ver relaciones" style={{background:"none",border:"none",color:highlighted?col.hl:"#2d4060",cursor:"pointer",padding:"0 2px",fontSize:"12px",lineHeight:1,flexShrink:0}}>⤳</button>}
       </div>
       {allTags.length>0&&(
         <div style={{display:"flex",gap:3,flexWrap:"wrap",marginTop:5}}>
@@ -531,7 +538,6 @@ function CardChip({card,D,col,layer,visible,hasFilter,highlighted,dimmed,onClick
       )}
       <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
         {card.url&&<span style={{fontSize:"9px",color:"#2d4060"}} title={card.url}>🔗</span>}
-        {(card.deps||[]).length>0&&<span style={{fontSize:"9px",color:"#2d4060"}}>⇐ {card.deps.length}</span>}
         {subs.length>0&&(
           <button onClick={e=>{e.stopPropagation();setOpen(o=>!o);}}
             style={{marginLeft:"auto",background:"none",border:`1px solid ${done===subs.length?"#166534":"#2d4060"}`,color:done===subs.length?"#22c55e":"#64748b",cursor:"pointer",padding:"1px 7px",borderRadius:10,fontSize:"9px",fontWeight:600}}>
