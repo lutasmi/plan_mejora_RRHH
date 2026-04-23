@@ -10,47 +10,52 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0f172a;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;height:100vh}
+body{background:#16202e;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;height:100vh}
 input,textarea,select{font-family:inherit}
 ::-webkit-scrollbar{width:7px;height:7px}
 ::-webkit-scrollbar-track{background:#1e293b}
-::-webkit-scrollbar-thumb{background:#475569;border-radius:4px}
+::-webkit-scrollbar-thumb{background:#3b4f68;border-radius:4px}
 input[type=color]{-webkit-appearance:none;border:none;cursor:pointer}
 input[type=color]::-webkit-color-swatch-wrapper{padding:0}
 input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
-.card-chip{transition:opacity 0.2s,box-shadow 0.15s,transform 0.1s}
-.card-chip:hover{transform:translateY(-1px)}
+.chip{transition:opacity .18s,box-shadow .15s,transform .12s}
+.chip:hover{transform:translateY(-1px)}
+.addrow:hover{border-color:#3b4f68!important;color:#64748b!important}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000}
 </style>
 </head>
-<body>
-<div id="root"></div>
+<body><div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useRef, useLayoutEffect } = React;
 
-const SUPA_URL = "https://dlbysoybuanzfbgbqgwi.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsYnlzb3lidWFuemZiZ2JxZ3dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTAxNzYsImV4cCI6MjA5MjUyNjE3Nn0.H1te91wXuuqwH0Farbz2Zt5eXeza0rBvlENLxh1Q18E";
-const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
-const SKEY = "plan-mejora-v3";
+// ── FIXED key — never changes, data is always safe
+const SKEY = "plan-mejora";
+const SUPA_URL="https://dlbysoybuanzfbgbqgwi.supabase.co";
+const SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsYnlzb3lidWFuemZiZ2JxZ3dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTAxNzYsImV4cCI6MjA5MjUyNjE3Nn0.H1te91wXuuqwH0Farbz2Zt5eXeza0rBvlENLxh1Q18E";
+const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
 
-async function dbLoad() {
-  try { const {data}=await sb.from("app_data").select("value").eq("key",SKEY).single(); return data?JSON.parse(data.value):null; }
-  catch { return null; }
-}
-async function dbSave(val) {
-  try { await sb.from("app_data").upsert({key:SKEY,value:JSON.stringify(val),updated_at:new Date().toISOString()}); }
-  catch(e){console.error(e);}
-}
+async function dbLoad(){try{const{data}=await sb.from("app_data").select("value").eq("key",SKEY).single();return data?JSON.parse(data.value):null;}catch{return null;}}
+async function dbSave(v){try{await sb.from("app_data").upsert({key:SKEY,value:JSON.stringify(v),updated_at:new Date().toISOString()});}catch(e){console.error(e);}}
 
-// ─── Columns: 5 data cols, "her"+"ana" grouped under SISTEMAS
-const COLS = [
-  {id:"pol", label:"Políticas",     sub:null,           color:"#1e3a5f", hl:"#3b82f6", grp:null},
-  {id:"pro", label:"Procesos",      sub:null,           color:"#14532d", hl:"#22c55e", grp:null},
-  {id:"her", label:"Herramientas",  sub:"ERP · SAP · Oracle…", color:"#431407", hl:"#f97316", grp:"sis"},
-  {id:"ana", label:"Analytics",     sub:"Datos · BI · Reporting", color:"#2e1065", hl:"#a855f7", grp:"sis"},
-  {id:"gov", label:"Gobierno",      sub:null,           color:"#4a0f0f", hl:"#ef4444", grp:null},
+// ── Layers
+const L={C:"consulta",S:"seguimiento",E:"editor"};
+const LAYER_META={
+  [L.C]:{label:"Vista pública",  color:"#1d4ed8",hl:"#60a5fa"},
+  [L.S]:{label:"Seguimiento",    color:"#92400e",hl:"#fbbf24"},
+  [L.E]:{label:"Editor",         color:"#065f46",hl:"#34d399"},
+};
+
+// ── Default cols
+const DEFAULT_COLS=[
+  {id:"pol",label:"Políticas",    sub:null,               color:"#0c2d6b",hl:"#60a5fa",grp:null},
+  {id:"pro",label:"Procesos",     sub:null,               color:"#052e18",hl:"#34d399",grp:null},
+  {id:"her",label:"Herramientas", sub:"ERP · SAP · Oracle",color:"#4a1800",hl:"#fb923c",grp:"sis"},
+  {id:"ana",label:"Analytics",    sub:"Datos · BI · Reporting",color:"#2a0a5e",hl:"#c084fc",grp:"sis"},
+  {id:"gov",label:"Gobierno",     sub:null,               color:"#5c0a10",hl:"#f87171",grp:null},
 ];
 
-const INIT = {
+const INIT={
+  cols:DEFAULT_COLS,
   rows:[
     {id:"r1",name:"Alta / Contratación"},{id:"r2",name:"Onboarding"},
     {id:"r3",name:"Cambios Contractuales"},{id:"r4",name:"Retribución y Compensación"},
@@ -60,7 +65,7 @@ const INIT = {
   ],
   cards:[],
   owners:[
-    {id:"o1",name:"Sin asignar",color:"#64748b"},
+    {id:"o1",name:"Sin asignar",color:"#475569"},
     {id:"o2",name:"HR Director",color:"#ef4444"},
     {id:"o3",name:"HR Ops Manager",color:"#38bdf8"},
     {id:"o4",name:"Dir. de Talento",color:"#34d399"},
@@ -68,419 +73,528 @@ const INIT = {
     {id:"o6",name:"IT / Sistemas",color:"#a78bfa"},
   ],
   tags:[
-    {id:"tg1",name:"Prioritario",color:"#ef4444"},
-    {id:"tg2",name:"En curso",color:"#f59e0b"},
-    {id:"tg3",name:"Pendiente",color:"#64748b"},
-    {id:"tg4",name:"Quick win",color:"#34d399"},
-    {id:"tg5",name:"Revisión",color:"#c084fc"},
+    {id:"tg1",name:"Prioritario",color:"#ef4444",tipo:"interna"},
+    {id:"tg2",name:"En curso",   color:"#f59e0b",tipo:"interna"},
+    {id:"tg3",name:"Pendiente",  color:"#64748b",tipo:"interna"},
+    {id:"tg4",name:"Quick win",  color:"#34d399",tipo:"interna"},
+    {id:"tg5",name:"Revisión",   color:"#c084fc",tipo:"interna"},
   ],
+  config:{passSegui:"seguimiento",passEditor:"editor"},
 };
 
-const uid = () => Math.random().toString(36).slice(2,8);
-const LW = 160, CW = 210;
-const INP = {background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",padding:"7px 9px",fontSize:"12px",borderRadius:4,fontFamily:"inherit",outline:"none",width:"100%",boxSizing:"border-box"};
-const BTN = {background:"transparent",border:"1px solid #334155",color:"#94a3b8",cursor:"pointer",padding:"5px 12px",fontSize:"10px",letterSpacing:"0.5px",borderRadius:4,fontFamily:"inherit"};
-
-// ─── CSV Export
-function exportCSV(D) {
-  const hdr = ["Etapa","Columna","Nombre","Descripción","URL","Owner","Etiquetas","Subtareas","Dependencias","Sem.Inicio","Sem.Fin"];
-  const rows = [hdr];
-  for (const c of D.cards) {
-    const row = D.rows.find(r=>r.id===c.rowId);
-    const col = COLS.find(x=>x.id===c.colId);
-    const own = D.owners.find(o=>o.id===c.ownerId);
-    const tags = D.tags.filter(t=>c.tagIds.includes(t.id)).map(t=>t.name).join(";");
-    const subs = (c.subtasks||[]).map(s=>s.name).join(";");
-    const deps = (c.deps||[]).map(d=>{const dc=D.cards.find(x=>x.id===d);return dc?dc.name:d;}).join(";");
-    rows.push([row?.name||"",col?.label||"",c.name,c.desc||"",c.url||"",own?.name||"",tags,subs,deps,c.sw,c.ew]);
-  }
-  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8;"}));
-  a.download = "plan-mejora-rrhh.csv"; a.click();
+// ── Migrate loaded data (adds missing fields without overwriting)
+function migrate(d){
+  if(!d.cols)    d.cols=DEFAULT_COLS.map(c=>({...c}));
+  if(!d.config)  d.config={passSegui:"seguimiento",passEditor:"editor"};
+  if(!d.config.passSegui) d.config.passSegui="seguimiento";
+  if(!d.config.passEditor)d.config.passEditor="editor";
+  d.tags  = d.tags.map(t=>({tipo:"interna",...t}));
+  d.cards = d.cards.map(c=>({publicado:false,completado:false,subtasks:[],deps:[],...c}));
+  return d;
 }
 
-// ─── App
-function App() {
-  const [D,        setD]        = useState(null);
-  const [panel,    setPanel]    = useState(null);
-  const [editing,  setEditing]  = useState(null);
-  const [fOwners,  setFOwners]  = useState([]);
-  const [fTags,    setFTags]    = useState([]);
-  const [saved,    setSaved]    = useState(true);
-  const [loading,  setLoading]  = useState(true);
-  const [showFlow, setShowFlow] = useState(false);
-  const [hlId,     setHlId]     = useState(null);
-  const [svgDims,  setSvgDims]  = useState({w:0,h:0});
-  const [arrows,   setArrows]   = useState([]);
-  const saveTimer  = useRef(null);
-  const cardRefs   = useRef({});
-  const scrollRef  = useRef(null);
+const uid=()=>Math.random().toString(36).slice(2,8);
+const LW=162,CW=208;
+const INP={background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",padding:"7px 9px",fontSize:"12px",borderRadius:4,fontFamily:"inherit",outline:"none",width:"100%",boxSizing:"border-box"};
+const BTN={background:"transparent",border:"1px solid #334155",color:"#94a3b8",cursor:"pointer",padding:"5px 12px",fontSize:"10px",letterSpacing:"0.5px",borderRadius:4,fontFamily:"inherit"};
 
-  useEffect(() => { dbLoad().then(d=>{setD(d||INIT);setLoading(false);}); }, []);
+function exportCSV(D){
+  const cols=D.cols||DEFAULT_COLS;
+  const hdr=["Etapa","Columna","Nombre","Descripción","URL","Owner","Etiquetas","Publicado","Subtareas","Dependencias","Sem.Inicio","Sem.Fin"];
+  const rows=[hdr];
+  for(const c of D.cards){
+    const row=D.rows.find(r=>r.id===c.rowId),col=cols.find(x=>x.id===c.colId),own=D.owners.find(o=>o.id===c.ownerId);
+    const tags=D.tags.filter(t=>c.tagIds.includes(t.id)).map(t=>t.name).join(";");
+    const subs=(c.subtasks||[]).map(s=>s.name).join(";");
+    const deps=(c.deps||[]).map(d=>{const dc=D.cards.find(x=>x.id===d);return dc?dc.name:d;}).join(";");
+    rows.push([row?.name||"",col?.label||"",c.name,c.desc||"",c.url||"",own?.name||"",tags,c.publicado?"Sí":"No",subs,deps,c.sw,c.ew]);
+  }
+  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8;"}));
+  a.download="plan-mejora-rrhh.csv";a.click();
+}
 
-  useEffect(() => {
-    if (!D||loading) return;
+function topoSort(cards){
+  const ids=new Set(cards.map(c=>c.id));
+  const inDeg={},adj={};
+  for(const c of cards){inDeg[c.id]=0;adj[c.id]=[];}
+  for(const c of cards)for(const d of(c.deps||[]))if(ids.has(d)){adj[d].push(c.id);inDeg[c.id]++;}
+  const q=cards.filter(c=>inDeg[c.id]===0).map(c=>c.id);
+  const out=[];const vis=new Set();
+  while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);out.push(id);for(const n of adj[id])if(--inDeg[n]===0)q.push(n);}
+  for(const c of cards)if(!vis.has(c.id))out.push(c.id);
+  return out.map(id=>cards.find(c=>c.id===id)).filter(Boolean);
+}
+function intraCellEdges(cards){
+  const ids=new Set(cards.map(c=>c.id)),edges=new Set();
+  for(const c of cards)for(const d of(c.deps||[]))if(ids.has(d))edges.add(`${d}:${c.id}`);
+  return edges;
+}
+
+// ────────────────────────────────────────────────────────────────
+// APP
+// ────────────────────────────────────────────────────────────────
+function App(){
+  const [D,setD]         =useState(null);
+  const [layer,setLayer] =useState(L.C);
+  const [panel,setPanel] =useState(null);   // "card"|"settings"|"consulta-card"
+  const [editing,setEditing]=useState(null);
+  const [fOwners,setFOwners]=useState([]);
+  const [fTags,setFTags] =useState([]);
+  const [saved,setSaved] =useState(true);
+  const [loading,setLoading]=useState(true);
+  const [showFlow,setShowFlow]=useState(false);
+  const [hlId,setHlId]   =useState(null);
+  const [arrows,setArrows]=useState([]);
+  const [svgDims,setSvgDims]=useState({w:0,h:0});
+  const [loginOpen,setLoginOpen]=useState(false);
+  const saveTimer=useRef(null);
+  const cardRefs=useRef({});
+  const scrollRef=useRef(null);
+
+  useEffect(()=>{dbLoad().then(d=>{setD(migrate(d||JSON.parse(JSON.stringify(INIT))));setLoading(false);});},[]);
+
+  useEffect(()=>{
+    if(!D||loading)return;
     setSaved(false);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(()=>dbSave(D).then(()=>setSaved(true)), 1000);
-    return ()=>clearTimeout(saveTimer.current);
-  }, [D]);
+    if(saveTimer.current)clearTimeout(saveTimer.current);
+    saveTimer.current=setTimeout(()=>dbSave(D).then(()=>setSaved(true)),1000);
+    return()=>clearTimeout(saveTimer.current);
+  },[D]);
 
-  // Recompute arrows
-  const recomputeArrows = () => {
-    if (!showFlow||!D||!scrollRef.current) { setArrows([]); return; }
-    const sc = scrollRef.current;
-    const scr = sc.getBoundingClientRect();
-    setSvgDims({w:sc.scrollWidth, h:sc.scrollHeight});
-    const list = [];
-    for (const card of D.cards) {
-      for (const depId of (card.deps||[])) {
-        const fe = cardRefs.current[depId];
-        const te = cardRefs.current[card.id];
-        if (!fe||!te) continue;
-        const fr = fe.getBoundingClientRect();
-        const tr = te.getBoundingClientRect();
-        list.push({
-          id:`${depId}>${card.id}`,
-          x1: fr.right  - scr.left + sc.scrollLeft,
-          y1: fr.top  + fr.height/2 - scr.top + sc.scrollTop,
-          x2: tr.left   - scr.left + sc.scrollLeft,
-          y2: tr.top  + tr.height/2 - scr.top + sc.scrollTop,
-        });
+  const recompute=()=>{
+    if(!showFlow||!D||!scrollRef.current){setArrows([]);return;}
+    const sc=scrollRef.current,scr=sc.getBoundingClientRect();
+    setSvgDims({w:sc.scrollWidth,h:sc.scrollHeight});
+    const list=[];
+    for(const card of D.cards){
+      for(const depId of(card.deps||[])){
+        const dep=D.cards.find(c=>c.id===depId);
+        if(!dep||dep.rowId===card.rowId&&dep.colId===card.colId)continue;
+        const fe=cardRefs.current[depId],te=cardRefs.current[card.id];
+        if(!fe||!te)continue;
+        const fr=fe.getBoundingClientRect(),tr=te.getBoundingClientRect();
+        list.push({id:`${depId}>${card.id}`,
+          x1:fr.right-scr.left+sc.scrollLeft, y1:fr.top+fr.height/2-scr.top+sc.scrollTop,
+          x2:tr.left-scr.left+sc.scrollLeft,  y2:tr.top+tr.height/2-scr.top+sc.scrollTop});
       }
     }
     setArrows(list);
   };
+  useLayoutEffect(()=>{recompute();},[showFlow,D,loading]);
 
-  useLayoutEffect(()=>{ recomputeArrows(); }, [showFlow, D, loading]);
+  const mut=fn=>setD(d=>{const nd=JSON.parse(JSON.stringify(d));fn(nd);return nd;});
+  const cols=()=>D?.cols||DEFAULT_COLS;
 
-  const mut = fn => setD(d=>{const nd=JSON.parse(JSON.stringify(d));fn(nd);return nd;});
-
-  const openAdd = (rowId,colId) => {
-    const c={id:uid(),rowId,colId,name:"Nueva entrada",desc:"",url:"",ownerId:"o1",tagIds:[],sw:0,ew:4,deps:[],subtasks:[]};
-    mut(d=>d.cards.push(c)); setEditing(c); setPanel("card");
+  // Card ops (editor only)
+  const openAdd=(rowId,colId)=>{
+    const c={id:uid(),rowId,colId,name:"Nueva entrada",desc:"",url:"",ownerId:"o1",tagIds:[],sw:0,ew:4,deps:[],subtasks:[],publicado:false,completado:false};
+    mut(d=>d.cards.push(c));setEditing(c);setPanel("card");
   };
-  const saveCard  = c => { mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;}); setEditing(null); setPanel(null); };
-  const deleteCard= id => { mut(d=>{d.cards=d.cards.filter(c=>c.id!==id).map(c=>({...c,deps:(c.deps||[]).filter(x=>x!==id)}));}); setEditing(null); setPanel(null); };
-  const addRow    = ()       => mut(d=>d.rows.push({id:uid(),name:"Nueva etapa"}));
-  const renameRow = (id,n)   => mut(d=>{const r=d.rows.find(r=>r.id===id);if(r)r.name=n;});
-  const deleteRow = id       => mut(d=>{d.rows=d.rows.filter(r=>r.id!==id);d.cards=d.cards.filter(c=>c.rowId!==id);});
-  const moveRow   = (id,dir) => mut(d=>{
-    const i=d.rows.findIndex(r=>r.id===id),ni=i+dir;
-    if(ni<0||ni>=d.rows.length)return;
-    [d.rows[i],d.rows[ni]]=[d.rows[ni],d.rows[i]];
-  });
+  const saveCard=c=>{mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});setEditing(null);setPanel(null);};
+  const deleteCard=id=>{mut(d=>{d.cards=d.cards.filter(c=>c.id!==id).map(c=>({...c,deps:(c.deps||[]).filter(x=>x!==id)}));});setEditing(null);setPanel(null);};
+  const addRow=()=>mut(d=>d.rows.push({id:uid(),name:"Nueva etapa"}));
+  const renameRow=(id,n)=>mut(d=>{const r=d.rows.find(r=>r.id===id);if(r)r.name=n;});
+  const deleteRow=id=>mut(d=>{d.rows=d.rows.filter(r=>r.id!==id);d.cards=d.cards.filter(c=>c.rowId!==id);});
+  const moveRow=(id,dir)=>mut(d=>{const i=d.rows.findIndex(r=>r.id===id),ni=i+dir;if(ni<0||ni>=d.rows.length)return;[d.rows[i],d.rows[ni]]=[d.rows[ni],d.rows[i]];});
 
-  const isVisible = c => {
-    if(!fOwners.length&&!fTags.length) return true;
-    return (!fOwners.length||fOwners.includes(c.ownerId))&&(!fTags.length||fTags.some(t=>c.tagIds.includes(t)));
-  };
+  const isVisible=c=>{if(!fOwners.length&&!fTags.length)return true;return(!fOwners.length||fOwners.includes(c.ownerId))&&(!fTags.length||fTags.some(t=>c.tagIds.includes(t)));};
+  const getRelated=id=>{if(!id||!D)return new Set();const s=new Set([id]),card=D.cards.find(c=>c.id===id);if(!card)return s;(card.deps||[]).forEach(d=>s.add(d));D.cards.forEach(c=>{if((c.deps||[]).includes(id))s.add(c.id);});return s;};
+  const related=getRelated(hlId);
+  const hasFilter=fOwners.length>0||fTags.length>0;
+  const lm=LAYER_META[layer];
+  const isEditor=layer===L.E;
+  const canEdit=layer===L.E;
+  const isPublicView=layer===L.C;
 
-  const getRelated = id => {
-    if(!id||!D) return new Set();
-    const s=new Set([id]);
-    const card=D.cards.find(c=>c.id===id);
-    if(!card) return s;
-    (card.deps||[]).forEach(d=>s.add(d));
-    D.cards.forEach(c=>{if((c.deps||[]).includes(id))s.add(c.id);});
-    return s;
-  };
-  const related   = getRelated(hlId);
-  const hasFilter = fOwners.length>0||fTags.length>0;
-
-  if (loading) return (
-    <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"#0f172a"}}>
+  if(loading)return(
+    <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"#0d1520"}}>
       <div style={{fontSize:"10px",letterSpacing:"4px",color:"#3b82f6"}}>CARGANDO</div>
       <div style={{fontSize:"12px",color:"#475569"}}>Conectando con la base de datos…</div>
     </div>
   );
 
-  return (
-    <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#0f172a",overflow:"hidden"}}>
+  return(
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#16202e",overflow:"hidden"}}>
+
       {/* ── Header */}
-      <div style={{background:"#0a1020",borderBottom:"2px solid #1e3a5f",padding:"9px 16px",flexShrink:0,zIndex:50}}>
+      <div style={{background:"#0d1520",borderBottom:`2px solid ${lm.color}`,padding:"9px 16px",flexShrink:0,zIndex:50}}>
         <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
           <div style={{marginRight:6}}>
-            <div style={{fontSize:"8px",letterSpacing:"4px",color:"#3b82f6",marginBottom:1}}>RRHH · TRANSFORMACIÓN</div>
+            <div style={{fontSize:"8px",letterSpacing:"4px",color:lm.hl,marginBottom:1}}>RRHH · TRANSFORMACIÓN</div>
             <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",letterSpacing:"0.3px"}}>Plan de Mejora</div>
           </div>
-          <Divider/>
-          <span style={{fontSize:"8px",letterSpacing:"2px",color:"#475569"}}>OWNER</span>
-          {D.owners.filter(o=>o.id!=="o1").map(o=>{
-            const a=fOwners.includes(o.id);
-            return <Pill key={o.id} color={o.color} active={a} onClick={()=>setFOwners(f=>a?f.filter(x=>x!==o.id):[...f,o.id])}>{o.name}</Pill>;
-          })}
-          <Divider/>
-          <span style={{fontSize:"8px",letterSpacing:"2px",color:"#475569"}}>TAGS</span>
-          {D.tags.map(t=>{
-            const a=fTags.includes(t.id);
-            return <Pill key={t.id} color={t.color} active={a} onClick={()=>setFTags(f=>a?f.filter(x=>x!==t.id):[...f,t.id])}>{t.name}</Pill>;
-          })}
-          {hasFilter&&<button onClick={()=>{setFOwners([]);setFTags([]);}} style={{...BTN,borderColor:"transparent",color:"#475569",fontSize:"11px"}}>× limpiar</button>}
+          {/* Layer badge */}
+          <span style={{fontSize:"9px",letterSpacing:"1.5px",fontWeight:700,padding:"3px 10px",borderRadius:20,background:lm.color+"33",color:lm.hl,border:`1px solid ${lm.color}`}}>{lm.label.toUpperCase()}</span>
+          <VD/>
+
+          {/* Filters — hidden in consulta */}
+          {!isPublicView&&<>
+            <span style={{fontSize:"8px",letterSpacing:"2px",color:"#334155"}}>OWNER</span>
+            {D.owners.filter(o=>o.id!=="o1").map(o=>{const a=fOwners.includes(o.id);return <Pill key={o.id} color={o.color} active={a} onClick={()=>setFOwners(f=>a?f.filter(x=>x!==o.id):[...f,o.id])}>{o.name}</Pill>;})}
+            <VD/>
+            <span style={{fontSize:"8px",letterSpacing:"2px",color:"#334155"}}>TAGS</span>
+            {D.tags.map(t=>{const a=fTags.includes(t.id);return <Pill key={t.id} color={t.color} active={a} onClick={()=>setFTags(f=>a?f.filter(x=>x!==t.id):[...f,t.id])}>{t.name}</Pill>;})}
+            {hasFilter&&<button onClick={()=>{setFOwners([]);setFTags([]);}} style={{...BTN,borderColor:"transparent",color:"#475569"}}>× limpiar</button>}
+          </>}
+
           <div style={{flex:1}}/>
-          <span style={{fontSize:"9px",color:saved?"#22c55e":"#f59e0b",minWidth:80}}>{saved?"✓ guardado":"guardando…"}</span>
-          <button onClick={()=>{setShowFlow(f=>!f);setTimeout(recomputeArrows,80);}} style={{...BTN,background:showFlow?"#1d4ed8":"transparent",color:showFlow?"#fff":"#94a3b8",borderColor:showFlow?"#3b82f6":"#334155"}}>
-            {showFlow?"◈ Flujo ON":"◈ Flujo OFF"}
-          </button>
-          <button onClick={()=>exportCSV(D)} style={BTN}>↓ CSV/Excel</button>
-          <button onClick={()=>setPanel(p=>p==="settings"?null:"settings")} style={{...BTN,borderColor:panel==="settings"?"#3b82f6":"#334155",color:panel==="settings"?"#60a5fa":"#94a3b8"}}>⚙ Config</button>
-          <button onClick={()=>{if(window.confirm("¿Restaurar datos de ejemplo?"))setD(INIT);}} style={{...BTN,color:"#334155",borderColor:"#1e293b"}}>Reset</button>
+
+          {canEdit&&<span style={{fontSize:"9px",color:saved?"#22c55e":"#f59e0b",minWidth:80}}>{saved?"✓ guardado":"guardando…"}</span>}
+          {!isPublicView&&<button onClick={()=>{setShowFlow(f=>!f);setTimeout(recompute,80);}} style={{...BTN,background:showFlow?"#1d4ed8":"transparent",color:showFlow?"#fff":"#94a3b8",borderColor:showFlow?"#3b82f6":"#334155"}}>{showFlow?"◈ Flujo ON":"◈ Flujo OFF"}</button>}
+          {canEdit&&<button onClick={()=>exportCSV(D)} style={BTN}>↓ CSV</button>}
+          {canEdit&&<button onClick={()=>setPanel(p=>p==="settings"?null:"settings")} style={{...BTN,borderColor:panel==="settings"?"#3b82f6":"#334155",color:panel==="settings"?"#60a5fa":"#94a3b8"}}>⚙ Config</button>}
+          {/* Acceder / Salir */}
+          {layer===L.C
+            ?<button onClick={()=>setLoginOpen(true)} style={{...BTN,borderColor:"#334155",color:"#94a3b8"}}>Acceder →</button>
+            :<button onClick={()=>{setLayer(L.C);setPanel(null);setShowFlow(false);}} style={{...BTN,borderColor:"#334155",color:"#64748b"}}>← Salir</button>
+          }
         </div>
       </div>
 
       {/* ── Body */}
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
-        <div ref={scrollRef} style={{flex:1,overflow:"auto",position:"relative"}}
-          onScroll={()=>{if(showFlow)recomputeArrows();}}>
-          <Matrix D={D} isVisible={isVisible} hasFilter={hasFilter}
+        <div ref={scrollRef} style={{flex:1,overflow:"auto",position:"relative"}} onScroll={()=>{if(showFlow)recompute();}}>
+          {D&&<Matrix D={D} cols={cols()} layer={layer} isVisible={isVisible} hasFilter={hasFilter}
             hlId={hlId} related={related}
-            onAdd={openAdd} onEdit={c=>{setEditing({...c});setPanel("card");}}
+            onAdd={openAdd}
+            onEdit={c=>{if(layer===L.C){setEditing(c);setPanel("consulta-card");}else{setEditing({...c});setPanel("card");}}}
             onHl={id=>setHlId(id===hlId?null:id)}
-            onRenameRow={renameRow} onDeleteRow={deleteRow}
-            onMoveRow={moveRow} onAddRow={addRow}
-            cardRefs={cardRefs}/>
-          {/* SVG Arrows */}
+            onRenameRow={renameRow} onDeleteRow={deleteRow} onMoveRow={moveRow} onAddRow={addRow}
+            cardRefs={cardRefs}/>}
+          {/* SVG arrows */}
           {showFlow&&arrows.length>0&&(
-            <svg style={{position:"absolute",top:0,left:0,pointerEvents:"none",zIndex:90}} width={svgDims.w} height={svgDims.h}>
-              <defs>
-                <marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                  <path d="M0,1 L7,4 L0,7 Z" fill="#60a5fa"/>
-                </marker>
-              </defs>
-              {arrows.map(a=>{
-                const mx=(a.x1+a.x2)/2;
-                return <path key={a.id} d={`M${a.x1},${a.y1} C${mx},${a.y1} ${mx},${a.y2} ${a.x2},${a.y2}`}
-                  stroke="#60a5fa" strokeWidth="1.5" fill="none" strokeOpacity="0.6" strokeDasharray="5 3" markerEnd="url(#ah)"/>;
-              })}
+            <svg style={{position:"absolute",top:0,left:0,pointerEvents:"none",zIndex:88}} width={svgDims.w} height={svgDims.h}>
+              <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,1.5 L7,4 L0,6.5 Z" fill="#60a5fa"/></marker></defs>
+              {arrows.map(a=>{const pad=18,mx=a.x1+pad,path=Math.abs(a.y1-a.y2)<3?`M${a.x1},${a.y1} H${a.x2}`:`M${a.x1},${a.y1} H${mx} V${a.y2} H${a.x2}`;return <path key={a.id} d={path} stroke="#60a5fa" strokeWidth="1.5" fill="none" strokeOpacity="0.65" markerEnd="url(#ah)"/>;})}
             </svg>
           )}
         </div>
-        {panel==="card"&&editing&&<CardPanel card={editing} D={D} onSave={saveCard} onDelete={()=>deleteCard(editing.id)} onClose={()=>{setPanel(null);setEditing(null);}}/>}
-        {panel==="settings"&&<SettingsPanel D={D} mut={mut} onClose={()=>setPanel(null)}/>}
+
+        {/* Side panels */}
+        {panel==="card"         &&editing&&<CardPanel   card={editing} D={D} cols={cols()} onSave={saveCard} onDelete={()=>deleteCard(editing.id)} onClose={()=>{setPanel(null);setEditing(null);}}/>}
+        {panel==="consulta-card"&&editing&&<ConsultaPanel card={editing} D={D} cols={cols()} onClose={()=>{setPanel(null);setEditing(null);}}/>}
+        {panel==="settings"                &&<SettingsPanel D={D} mut={mut} onClose={()=>setPanel(null)}/>}
+      </div>
+
+      {/* Login modal */}
+      {loginOpen&&<LoginModal D={D} onLogin={role=>{setLayer(role);setLoginOpen(false);}} onClose={()=>setLoginOpen(false)}/>}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// LOGIN MODAL
+// ────────────────────────────────────────────────────────────────
+function LoginModal({D,onLogin,onClose}){
+  const [pass,setPass]=useState("");
+  const [err,setErr]=useState(false);
+  const check=()=>{
+    if(pass===D.config?.passEditor){onLogin(L.E);return;}
+    if(pass===D.config?.passSegui){onLogin(L.S);return;}
+    setErr(true);setTimeout(()=>setErr(false),1800);
+  };
+  return(
+    <div className="modal-bg" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:"#0d1520",border:"1px solid #1e3a5f",borderRadius:8,padding:"32px",width:340,display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{fontSize:"9px",letterSpacing:"4px",color:"#3b82f6",textAlign:"center"}}>ACCESO RESTRINGIDO</div>
+        <div style={{fontSize:"20px",fontWeight:800,color:"#f1f5f9",textAlign:"center"}}>Introduce la contraseña</div>
+        <p style={{fontSize:"12px",color:"#475569",textAlign:"center",lineHeight:1.6}}>Seguimiento o Editor según la contraseña que utilices.</p>
+        <input type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr(false);}}
+          onKeyDown={e=>e.key==="Enter"&&check()}
+          placeholder="Contraseña…" autoFocus
+          style={{...INP,fontSize:"14px",padding:"10px 12px",textAlign:"center",letterSpacing:"3px",borderColor:err?"#ef4444":"#334155",transition:"border-color .2s"}}/>
+        {err&&<div style={{fontSize:"11px",color:"#ef4444",textAlign:"center"}}>Contraseña incorrecta</div>}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={onClose} style={{flex:1,...BTN,padding:"10px"}}>Cancelar</button>
+          <button onClick={check} style={{flex:2,background:"#1d4ed8",border:"none",color:"#fff",padding:"10px",cursor:"pointer",fontSize:"12px",borderRadius:4,fontFamily:"inherit",fontWeight:700}}>Acceder</button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── Matrix
-function Matrix({D,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl,onRenameRow,onDeleteRow,onMoveRow,onAddRow,cardRefs}) {
-  // 6 grid columns: label + 5 data
-  const gc = `${LW}px repeat(5, minmax(${CW}px,1fr))`;
+// ────────────────────────────────────────────────────────────────
+// MATRIX
+// ────────────────────────────────────────────────────────────────
+function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl,onRenameRow,onDeleteRow,onMoveRow,onAddRow,cardRefs}){
+  const isPublic=layer===L.C;
+  const canEdit=layer===L.E;
+  const gc=`${LW}px repeat(${cols.length}, minmax(${CW}px,1fr))`;
 
-  return (
-    <div style={{display:"grid",gridTemplateColumns:gc,minWidth:LW+5*CW}}>
-
-      {/* ── Super-header row (for SISTEMAS group) */}
-      <div style={{position:"sticky",top:0,left:0,zIndex:55,background:"#0a1020",borderRight:"1px solid #1e293b",borderBottom:"1px solid #1e293b",height:24}}/>
-      {COLS.map((col,ci)=>{
-        // only render group header for first of group
-        if(col.grp==="sis"&&ci>0&&COLS[ci-1].grp==="sis") return null;
-        const span = col.grp==="sis" ? 2 : 1;
-        return (
-          <div key={"sg"+col.id} style={{
-            position:"sticky",top:0,zIndex:54,
-            gridColumn:`span ${span}`,
-            background: col.grp==="sis"?"#2e1065":"#0a1020",
-            borderLeft:"1px solid #1e293b",
-            borderBottom:"1px solid #1e293b",
-            height:24,
-            display:"flex",alignItems:"center",justifyContent:"center",
-          }}>
-            {col.grp==="sis"&&<span style={{fontSize:"8px",letterSpacing:"3px",color:"#a855f7",fontWeight:700}}>SISTEMAS</span>}
-          </div>
-        );
+  return(
+    <div style={{display:"grid",gridTemplateColumns:gc,minWidth:LW+cols.length*CW}}>
+      {/* Super-header SISTEMAS */}
+      <div style={{position:"sticky",top:0,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"1px solid #1a2535",height:22}}/>
+      {cols.map((col,ci)=>{
+        if(col.grp==="sis"&&ci>0&&cols[ci-1].grp==="sis")return null;
+        const span=col.grp==="sis"?2:1;
+        return(<div key={"sg"+col.id} style={{position:"sticky",top:0,zIndex:54,gridColumn:`span ${span}`,background:col.grp==="sis"?"#1a0a40":"#0d1520",borderLeft:"1px solid #1a2535",borderBottom:"1px solid #1a2535",height:22,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {col.grp==="sis"&&<span style={{fontSize:"8px",letterSpacing:"3px",color:"#a855f7",fontWeight:700}}>SISTEMAS</span>}
+        </div>);
       })}
-
-      {/* ── Column headers */}
-      <div style={{position:"sticky",top:24,left:0,zIndex:55,background:"#0a1020",borderRight:"1px solid #1e293b",borderBottom:"2px solid #1e293b",padding:"10px 12px",display:"flex",alignItems:"flex-end"}}>
-        <span style={{fontSize:"8px",letterSpacing:"2px",color:"#334155"}}>ETAPA DEL CICLO</span>
+      {/* Column headers */}
+      <div style={{position:"sticky",top:22,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"2px solid #253347",padding:"10px 12px",display:"flex",alignItems:"flex-end"}}>
+        <span style={{fontSize:"8px",letterSpacing:"2px",color:"#253347",fontWeight:600}}>ETAPA DEL CICLO</span>
       </div>
-      {COLS.map(col=>(
-        <div key={"ch"+col.id} style={{
-          position:"sticky",top:24,zIndex:52,
-          background:col.color,
-          borderLeft:"1px solid rgba(255,255,255,0.08)",
-          borderBottom:"2px solid rgba(0,0,0,0.4)",
-          padding:"10px 14px 8px",
-        }}>
-          <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.4)",marginBottom:3,fontWeight:500}}>
-            {COLS.indexOf(col)+1 < 10 ? `0${COLS.indexOf(col)+1}` : COLS.indexOf(col)+1}
-          </div>
-          <div style={{fontSize:"13px",fontWeight:700,color:"#fff",lineHeight:1.2}}>{col.label}</div>
-          {col.sub&&<div style={{fontSize:"9px",color:"rgba(255,255,255,0.4)",marginTop:2,lineHeight:1.3}}>{col.sub}</div>}
+      {cols.map((col,ci)=>(
+        <div key={"ch"+col.id} style={{position:"sticky",top:22,zIndex:52,background:col.color,borderLeft:"1px solid rgba(255,255,255,0.07)",borderBottom:"2px solid rgba(0,0,0,0.45)",padding:"10px 14px 8px"}}>
+          <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.4)",marginBottom:3,fontWeight:600}}>{String(ci+1).padStart(2,"0")}</div>
+          <div style={{fontSize:"13px",fontWeight:800,color:"#fff",lineHeight:1.2,textShadow:"0 1px 3px rgba(0,0,0,0.6)"}}>{col.label}</div>
+          {col.sub&&<div style={{fontSize:"9px",color:"rgba(255,255,255,0.45)",marginTop:2}}>{col.sub}</div>}
         </div>
       ))}
-
-      {/* ── Data rows */}
+      {/* Data rows */}
       {D.rows.map((row,ri)=>{
-        const bg = ri%2===0?"#0f172a":"#0c1424";
-        return [
-          <div key={"L"+row.id} style={{position:"sticky",left:0,zIndex:22,background:bg,borderRight:"1px solid #1e293b",borderBottom:"1px solid #1e293b",padding:"10px 8px",minHeight:110}}>
-            <RowLabel row={row} idx={ri} total={D.rows.length} onRename={onRenameRow} onDelete={onDeleteRow} onMove={onMoveRow}/>
+        const bg=ri%2===0?"#16202e":"#131a28";
+        return[
+          <div key={"L"+row.id} style={{position:"sticky",left:0,zIndex:22,background:bg,borderRight:"1px solid #253347",borderBottom:"1px solid #1e2d40",padding:"10px 8px",minHeight:110}}>
+            {canEdit
+              ?<RowLabel row={row} idx={ri} total={D.rows.length} onRename={onRenameRow} onDelete={onDeleteRow} onMove={onMoveRow}/>
+              :<div style={{fontSize:"12px",fontWeight:600,color:"#94a3b8",lineHeight:1.4,padding:"2px 0"}}>{row.name}</div>
+            }
           </div>,
-          ...COLS.map(col=>{
-            const cc=D.cards.filter(c=>c.rowId===row.id&&c.colId===col.id);
-            return (
-              <div key={"C"+row.id+col.id} style={{background:bg,borderLeft:"1px solid #1e293b",borderBottom:"1px solid #1e293b",padding:"7px",minHeight:110,display:"flex",flexDirection:"column",gap:5}}>
-                {cc.map(c=>(
-                  <CardChip key={c.id} card={c} D={D} col={col}
-                    visible={isVisible(c)} hasFilter={hasFilter}
-                    highlighted={hlId&&related.has(c.id)}
-                    dimmed={hlId&&!related.has(c.id)}
-                    onClick={()=>onEdit(c)}
-                    onHl={e=>{e.stopPropagation();onHl(c.id);}}
-                    cardRefs={cardRefs}/>
-                ))}
-                <button onClick={()=>onAdd(row.id,col.id)}
-                  style={{marginTop:"auto",background:"none",border:"1px dashed #1e293b",color:"#1e3a5f",padding:"4px",fontSize:"13px",cursor:"pointer",borderRadius:3,lineHeight:1,transition:"border-color 0.15s,color 0.15s"}}
-                  onMouseEnter={e=>{e.target.style.borderColor="#334155";e.target.style.color="#475569";}}
-                  onMouseLeave={e=>{e.target.style.borderColor="#1e293b";e.target.style.color="#1e3a5f";}}>
-                  ＋
-                </button>
+          ...cols.map(col=>{
+            let cc=D.cards.filter(c=>c.rowId===row.id&&c.colId===col.id);
+            if(isPublic)cc=cc.filter(c=>c.publicado);
+            const sorted=topoSort(cc);
+            const edges=intraCellEdges(cc);
+            return(
+              <div key={"C"+row.id+col.id} style={{background:bg,borderLeft:"1px solid #1e2d40",borderBottom:"1px solid #1e2d40",padding:"7px",minHeight:110,display:"flex",flexDirection:"column",gap:0}}>
+                {sorted.map((c,ci2)=>{
+                  const prev=sorted[ci2-1];
+                  const conn=prev&&edges.has(`${prev.id}:${c.id}`);
+                  return(
+                    <div key={c.id}>
+                      {conn&&<div style={{display:"flex",alignItems:"center",padding:"2px 4px",gap:4}}><div style={{flex:1,height:"1px",background:"#2d4060"}}/><span style={{fontSize:"9px",color:"#3b5070",lineHeight:1}}>▼</span><div style={{flex:1,height:"1px",background:"#2d4060"}}/></div>}
+                      <div style={{marginBottom:conn?0:5}}>
+                        <CardChip card={c} D={D} col={col} layer={layer}
+                          visible={isVisible(c)} hasFilter={hasFilter}
+                          highlighted={!isPublic&&hlId&&related.has(c.id)}
+                          dimmed={!isPublic&&!!hlId&&!related.has(c.id)}
+                          onClick={()=>onEdit(c)}
+                          onHl={e=>{e.stopPropagation();onHl(c.id);}}
+                          cardRefs={cardRefs}/>
+                      </div>
+                    </div>
+                  );
+                })}
+                {canEdit&&(
+                  <div style={{marginTop:"auto",paddingTop:5}}>
+                    <button className="addrow" onClick={()=>onAdd(row.id,col.id)} style={{width:"100%",background:"none",border:"1px dashed #1e2d40",color:"#1e2d40",padding:"3px",fontSize:"13px",cursor:"pointer",borderRadius:3,lineHeight:1,transition:"all .15s"}}>＋</button>
+                  </div>
+                )}
               </div>
             );
           }),
         ];
       })}
-
-      <div style={{gridColumn:"1/-1",padding:14,display:"flex",justifyContent:"center",borderTop:"1px solid #1e293b"}}>
-        <button onClick={onAddRow} style={{...BTN,borderStyle:"dashed",padding:"7px 40px",color:"#334155",borderColor:"#1e293b"}}>
-          + AÑADIR ETAPA
-        </button>
-      </div>
+      {canEdit&&(
+        <div style={{gridColumn:"1/-1",padding:14,display:"flex",justifyContent:"center",borderTop:"1px solid #1e2d40"}}>
+          <button className="addrow" onClick={onAddRow} style={{background:"none",border:"1px dashed #1e2d40",color:"#253347",cursor:"pointer",padding:"7px 44px",fontSize:"9px",letterSpacing:"2px",borderRadius:3,transition:"all .15s"}}>+ AÑADIR ETAPA</button>
+        </div>
+      )}
     </div>
   );
 }
 
-// ─── Row label
-function RowLabel({row,idx,total,onRename,onDelete,onMove}) {
+// ────────────────────────────────────────────────────────────────
+// ROW LABEL (editor only)
+// ────────────────────────────────────────────────────────────────
+function RowLabel({row,idx,total,onRename,onDelete,onMove}){
   const [ed,setEd]=useState(false);
   const [v,setV]=useState(row.name);
   const commit=()=>{onRename(row.id,v||row.name);setEd(false);};
-  return (
+  return(
     <div style={{display:"flex",flexDirection:"column",height:"100%",gap:6}}>
-      {ed
-        ?<input value={v} onChange={e=>setV(e.target.value)} onBlur={commit}
-            onKeyDown={e=>{if(e.key==="Enter")commit();if(e.key==="Escape")setEd(false);}}
-            autoFocus style={{...INP,fontSize:"12px",padding:"3px 6px"}}/>
-        :<div onClick={()=>{setV(row.name);setEd(true);}} style={{fontSize:"12px",fontWeight:600,color:"#94a3b8",lineHeight:1.4,cursor:"text",flex:1,paddingRight:4}}>{row.name}</div>
-      }
+      {ed?<input value={v} onChange={e=>setV(e.target.value)} onBlur={commit} onKeyDown={e=>{if(e.key==="Enter")commit();if(e.key==="Escape")setEd(false);}} autoFocus style={{...INP,fontSize:"12px",padding:"3px 6px"}}/>
+        :<div onClick={()=>{setV(row.name);setEd(true);}} style={{fontSize:"12px",fontWeight:600,color:"#94a3b8",lineHeight:1.4,cursor:"text",flex:1}}>{row.name}</div>}
       <div style={{display:"flex",gap:3}}>
-        <SmBtn onClick={()=>onMove(row.id,-1)} disabled={idx===0}>↑</SmBtn>
-        <SmBtn onClick={()=>onMove(row.id,1)} disabled={idx===total-1}>↓</SmBtn>
-        <SmBtn onClick={()=>{if(window.confirm(`¿Eliminar "${row.name}"?`))onDelete(row.id);}} danger>✕</SmBtn>
+        {[["↑",()=>onMove(row.id,-1),idx===0],["↓",()=>onMove(row.id,1),idx===total-1],["✕",()=>{if(window.confirm(`¿Eliminar "${row.name}"?`))onDelete(row.id);},false,true]].map(([lbl,fn,dis,danger])=>(
+          <button key={lbl} onClick={dis?undefined:fn} style={{background:"none",border:`1px solid ${danger?"#3f1010":dis?"#1e2d40":"#1e2d40"}`,color:danger?"#5a1818":dis?"#1e2d40":"#334155",cursor:dis?"default":"pointer",padding:"2px 6px",fontSize:"9px",borderRadius:2,lineHeight:1}}>{lbl}</button>
+        ))}
       </div>
     </div>
   );
 }
-const SmBtn=({children,onClick,disabled,danger})=>(
-  <button onClick={disabled?undefined:onClick}
-    style={{background:"none",border:`1px solid ${danger?"#3f1010":disabled?"#1e293b":"#1e293b"}`,color:danger?"#5a1818":disabled?"#1e293b":"#334155",cursor:disabled?"default":"pointer",padding:"2px 6px",fontSize:"9px",borderRadius:2,lineHeight:1,transition:"all 0.15s"}}
-    onMouseEnter={e=>{if(!disabled)e.target.style.borderColor=danger?"#7f1d1d":"#475569";}}
-    onMouseLeave={e=>{if(!disabled)e.target.style.borderColor=danger?"#3f1010":"#1e293b";}}>
-    {children}
-  </button>
-);
 
-// ─── Card chip
-function CardChip({card,D,col,visible,hasFilter,highlighted,dimmed,onClick,onHl,cardRefs}) {
+// ────────────────────────────────────────────────────────────────
+// CARD CHIP
+// ────────────────────────────────────────────────────────────────
+function CardChip({card,D,col,layer,visible,hasFilter,highlighted,dimmed,onClick,onHl,cardRefs}){
   const [open,setOpen]=useState(false);
+  const isPublic=layer===L.C;
+  const canEdit=layer===L.E;
   const owner=D.owners.find(o=>o.id===card.ownerId)||D.owners[0];
-  const tags=D.tags.filter(t=>card.tagIds.includes(t.id));
+  const allTags=D.tags.filter(t=>card.tagIds.includes(t.id));
+  const visibleTags=isPublic?allTags.filter(t=>t.tipo==="publicada"):allTags;
   const subs=card.subtasks||[];
   const done=subs.filter(s=>s.done).length;
-  const hasDeps=(card.deps||[]).length>0;
   const depNames=(card.deps||[]).map(d=>{const c=D.cards.find(x=>x.id===d);return c?c.name:null;}).filter(Boolean);
 
-  return (
-    <div ref={el=>{if(el)cardRefs.current[card.id]=el;else delete cardRefs.current[card.id];}}
-      className="card-chip"
-      style={{
-        background: highlighted?"#0f2240":"#1e293b",
-        border:`1px solid ${highlighted?col.hl+"99":dimmed?"#1e293b":"#334155"}`,
-        borderLeft:`3px solid ${highlighted?col.hl:owner.color}`,
-        borderRadius:4,
-        padding:"8px 9px",
-        cursor:"pointer",
-        opacity: hasFilter&&!visible?0.06:dimmed?0.15:1,
-        boxShadow: highlighted?`0 0 0 1px ${col.hl}44,0 2px 12px ${col.hl}22`:"none",
-      }}>
-      {/* Top row: name + actions */}
-      <div style={{display:"flex",alignItems:"flex-start",gap:5}}>
-        <div onClick={onClick} style={{flex:1,fontSize:"12px",fontWeight:500,color: highlighted?"#e2e8f0":"#cbd5e1",lineHeight:1.4,cursor:"pointer"}}>{card.name}</div>
-        <button onClick={onHl} title="Ver relaciones"
-          style={{background:"none",border:"none",color:highlighted?col.hl:"#334155",cursor:"pointer",padding:"0 2px",fontSize:"12px",lineHeight:1,flexShrink:0,transition:"color 0.15s"}}>◎</button>
+  // Consulta mode: simplified, polished card
+  if(isPublic){
+    return(
+      <div onClick={onClick} className="chip"
+        style={{background:card.completado?"#071f12":"#1c2d42",border:`1px solid ${card.completado?"#22c55e":"#2d4060"}`,borderLeft:`4px solid ${card.completado?"#22c55e":owner.color}`,borderRadius:5,padding:"10px 12px",cursor:"pointer",marginBottom:5}}>
+        <div style={{fontSize:"13px",fontWeight:700,color:"#f1f5f9",lineHeight:1.3,marginBottom:4}}>{card.completado&&<span style={{fontSize:"10px",color:"#22c55e",marginRight:6}}>✓</span>}{card.name}</div>
+        {card.desc&&<div style={{fontSize:"11px",color:"#64748b",lineHeight:1.5,marginBottom:6,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{card.desc}</div>}
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:"10px",color:owner.color,fontWeight:600}}>{owner.name}</span>
+          {visibleTags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"2px 7px",borderRadius:10,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
+          {card.url&&<span style={{marginLeft:"auto",fontSize:"9px",color:"#3b82f6",fontWeight:600}}>🔗 Ver doc</span>}
+        </div>
       </div>
-      {/* Tags */}
-      {tags.length>0&&(
+    );
+  }
+
+  return(
+    <div ref={el=>{if(el)cardRefs.current[card.id]=el;else delete cardRefs.current[card.id];}}
+      className="chip"
+      style={{background:highlighted?"#0f2344":card.completado?"#071f12":"#1c2d42",border:`1px solid ${card.completado?"#22c55e":highlighted?col.hl+"88":dimmed?"#1a2535":"#2d4060"}`,borderLeft:`4px solid ${card.completado?"#22c55e":highlighted?col.hl:owner.color}`,borderRadius:4,padding:"8px 9px",cursor:"pointer",
+        opacity:hasFilter&&!visible?0.05:dimmed?0.12:1,
+        boxShadow:highlighted?`0 0 0 1px ${col.hl}33,0 2px 12px ${col.hl}18`:"none",
+      }}>
+      <div style={{display:"flex",alignItems:"flex-start",gap:5}}>
+        <div onClick={onClick} style={{flex:1,fontSize:"12px",fontWeight:600,color:highlighted?"#f1f5f9":"#cbd5e1",lineHeight:1.4}}>{card.name}</div>
+        {/* Published badge */}
+        {canEdit&&(
+          <span style={{fontSize:"8px",padding:"1px 5px",borderRadius:3,background:card.publicado?"#052e18":"#1a2535",color:card.publicado?"#34d399":"#334155",border:`1px solid ${card.publicado?"#166534":"#253347"}`,flexShrink:0,fontWeight:700}}>
+            {card.publicado?"PUB":"—"}
+          </span>
+        )}
+        {layer===L.S&&<button onClick={onHl} style={{background:"none",border:"none",color:highlighted?col.hl:"#2d4060",cursor:"pointer",padding:"0 2px",fontSize:"13px",lineHeight:1,flexShrink:0}}>◎</button>}
+        {canEdit&&<button onClick={onHl} style={{background:"none",border:"none",color:highlighted?col.hl:"#2d4060",cursor:"pointer",padding:"0 2px",fontSize:"13px",lineHeight:1,flexShrink:0}}>◎</button>}
+      </div>
+      {allTags.length>0&&(
         <div style={{display:"flex",gap:3,flexWrap:"wrap",marginTop:5}}>
-          {tags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"22",color:t.color,padding:"1px 6px",borderRadius:10,border:`1px solid ${t.color}33`,fontWeight:500}}>{t.name}</span>)}
+          {allTags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"1px 6px",borderRadius:10,border:`1px solid ${t.color+"44"}`,fontWeight:600,opacity:t.tipo==="interna"?1:1}}>{t.tipo==="publicada"&&"◆ "}{t.name}</span>)}
         </div>
       )}
-      {/* Bottom bar */}
       <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
-        {card.url&&<span style={{fontSize:"9px",color:"#334155"}} title={card.url}>🔗</span>}
-        {hasDeps&&<span style={{fontSize:"9px",color:"#334155"}}>⇐ {(card.deps||[]).length}</span>}
+        {card.url&&<span style={{fontSize:"9px",color:"#2d4060"}} title={card.url}>🔗</span>}
+        {(card.deps||[]).length>0&&<span style={{fontSize:"9px",color:"#2d4060"}}>⇐ {card.deps.length}</span>}
         {subs.length>0&&(
           <button onClick={e=>{e.stopPropagation();setOpen(o=>!o);}}
-            style={{marginLeft:"auto",background:"none",border:"1px solid #334155",color:done===subs.length?"#22c55e":"#64748b",cursor:"pointer",padding:"1px 6px",borderRadius:10,fontSize:"9px",fontWeight:500,transition:"all 0.15s"}}>
+            style={{marginLeft:"auto",background:"none",border:`1px solid ${done===subs.length?"#166534":"#2d4060"}`,color:done===subs.length?"#22c55e":"#64748b",cursor:"pointer",padding:"1px 7px",borderRadius:10,fontSize:"9px",fontWeight:600}}>
             {open?"▲":"▼"} {done}/{subs.length}
           </button>
         )}
       </div>
-      {/* Subtasks */}
       {open&&subs.length>0&&(
-        <div style={{marginTop:6,borderTop:"1px solid #1e293b",paddingTop:6,display:"flex",flexDirection:"column",gap:3}}>
-          {subs.map(s=>(
-            <div key={s.id} style={{display:"flex",alignItems:"center",gap:6,fontSize:"11px",color:s.done?"#475569":"#94a3b8",textDecoration:s.done?"line-through":"none"}}>
-              <span style={{color:s.done?"#22c55e":"#334155",fontSize:"10px"}}>{s.done?"✓":"○"}</span>
-              {s.name}
-            </div>
-          ))}
+        <div style={{marginTop:6,borderTop:"1px solid #1e2d40",paddingTop:6,display:"flex",flexDirection:"column",gap:4}}>
+          {subs.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:7,fontSize:"11px",color:s.done?"#334155":"#94a3b8",textDecoration:s.done?"line-through":"none"}}>
+            <span style={{color:s.done?"#22c55e":"#2d4060",fontSize:"10px",flexShrink:0}}>{s.done?"✓":"○"}</span>{s.name}
+          </div>)}
         </div>
       )}
-      {/* Dep tooltip */}
       {highlighted&&depNames.length>0&&(
-        <div style={{marginTop:6,padding:"5px 7px",background:"#0f2240",borderRadius:3,fontSize:"9px",color:"#60a5fa",lineHeight:1.5,borderTop:"1px solid #1e3a5f"}}>
-          ⇐ {depNames.join(" · ")}
-        </div>
+        <div style={{marginTop:6,padding:"5px 7px",background:"#0a1a30",borderRadius:3,fontSize:"9px",color:"#60a5fa",lineHeight:1.6,borderTop:"1px solid #1a3050"}}>⇐ {depNames.join(" · ")}</div>
       )}
     </div>
   );
 }
 
-// ─── Card panel
-function CardPanel({card,D,onSave,onDelete,onClose}) {
-  const [f,setF]=useState({...card,subtasks:card.subtasks||[]});
+// ────────────────────────────────────────────────────────────────
+// CONSULTA PANEL (read-only detail, layer C)
+// ────────────────────────────────────────────────────────────────
+function ConsultaPanel({card,D,cols,onClose}){
+  const col=cols.find(c=>c.id===card.colId);
+  const row=D.rows.find(r=>r.id===card.rowId);
+  const owner=D.owners.find(o=>o.id===card.ownerId)||D.owners[0];
+  const tags=D.tags.filter(t=>card.tagIds.includes(t.id)&&t.tipo==="publicada");
+  return(
+    <div style={{width:340,background:"#0d1520",borderLeft:"2px solid #1e2d40",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+      <div style={{padding:"20px",background:col?.color||"#1e293b",flexShrink:0,borderBottom:`2px solid rgba(255,255,255,0.1)`}}>
+        <button onClick={onClose} style={{float:"right",background:"none",border:"none",color:"rgba(255,255,255,0.35)",cursor:"pointer",fontSize:"20px",lineHeight:1,padding:0,marginLeft:8}}>✕</button>
+        <div style={{fontSize:"8px",letterSpacing:"3px",color:"rgba(255,255,255,0.45)",marginBottom:6}}>{row?.name} · {col?.label}</div>
+        <div style={{fontSize:"20px",fontWeight:800,color:"#fff",lineHeight:1.3,textShadow:"0 2px 8px rgba(0,0,0,0.5)"}}>{card.name}</div>
+      </div>
+      <div style={{flex:1,overflow:"auto",padding:20,display:"flex",flexDirection:"column",gap:18}}>
+        {/* Owner */}
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:4,height:36,borderRadius:2,background:owner.color,flexShrink:0}}/>
+          <div>
+            <div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:2,fontWeight:600}}>RESPONSABLE</div>
+            <div style={{fontSize:"14px",fontWeight:700,color:owner.color}}>{owner.name}</div>
+          </div>
+        </div>
+        {/* Description */}
+        {card.desc&&(
+          <div>
+            <div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:8,fontWeight:600}}>DESCRIPCIÓN</div>
+            <p style={{fontSize:"13px",color:"#94a3b8",lineHeight:1.7}}>{card.desc}</p>
+          </div>
+        )}
+        {/* Tags */}
+        {tags.length>0&&(
+          <div>
+            <div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:8,fontWeight:600}}>CATEGORÍAS</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {tags.map(t=><span key={t.id} style={{fontSize:"11px",background:t.color+"25",color:t.color,padding:"4px 12px",borderRadius:20,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
+            </div>
+          </div>
+        )}
+        {/* Link */}
+        {card.url&&(
+          <div>
+            <div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:8,fontWeight:600}}>DOCUMENTO</div>
+            <a href={card.url} target="_blank" rel="noreferrer"
+              style={{display:"flex",alignItems:"center",gap:8,padding:"12px 16px",background:"#1c2d42",border:"1px solid #2d4060",borderRadius:6,color:"#60a5fa",fontSize:"12px",fontWeight:600,textDecoration:"none",transition:"background .15s"}}>
+              🔗 Abrir documento →
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────
+// CARD PANEL (editor)
+// ────────────────────────────────────────────────────────────────
+function CardPanel({card,D,cols,onSave,onDelete,onClose}){
+  const [f,setF]=useState({...card,subtasks:card.subtasks||[],publicado:card.publicado||false,completado:card.completado||false});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   const owner=D.owners.find(o=>o.id===f.ownerId)||D.owners[0];
-  const col=COLS.find(c=>c.id===f.colId);
+  const col=cols.find(c=>c.id===f.colId);
   const row=D.rows.find(r=>r.id===f.rowId);
-
   const addSub=()=>setF(p=>({...p,subtasks:[...p.subtasks,{id:uid(),name:"",done:false}]}));
   const updateSub=(id,k,v)=>setF(p=>({...p,subtasks:p.subtasks.map(s=>s.id===id?{...s,[k]:v}:s)}));
   const deleteSub=id=>setF(p=>({...p,subtasks:p.subtasks.filter(s=>s.id!==id)}));
-
-  return (
-    <div style={{width:320,background:"#0a1020",borderLeft:"2px solid #1e293b",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+  return(
+    <div style={{width:320,background:"#0d1520",borderLeft:"2px solid #1e2d40",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
       <div style={{padding:"12px 16px",background:col?.color||"#1e293b",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
         <div>
-          <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.4)",marginBottom:2}}>{row?.name} · {col?.label}</div>
-          <div style={{fontSize:"13px",color:"#fff",fontWeight:700}}>Editar entrada</div>
+          <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.45)",marginBottom:2}}>{row?.name} · {col?.label}</div>
+          <div style={{fontSize:"13px",color:"#fff",fontWeight:800}}>Editar entrada</div>
         </div>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:"20px",lineHeight:1,padding:0}}>✕</button>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.35)",cursor:"pointer",fontSize:"20px",lineHeight:1,padding:0}}>✕</button>
       </div>
-
       <div style={{flex:1,overflow:"auto",padding:16,display:"flex",flexDirection:"column",gap:14}}>
-        <Fld label="NOMBRE">
-          <input value={f.name} onChange={e=>set("name",e.target.value)} style={INP}/>
-        </Fld>
-        <Fld label="DESCRIPCIÓN">
-          <textarea value={f.desc} onChange={e=>set("desc",e.target.value)} rows={3}
-            placeholder="Describe de qué trata esta entrada…"
-            style={{...INP,resize:"vertical",lineHeight:1.6}}/>
-        </Fld>
+        {/* Publicado toggle */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:f.publicado?"#052e18":"#1a2535",border:`1px solid ${f.publicado?"#166534":"#253347"}`,borderRadius:6,cursor:"pointer"}} onClick={()=>set("publicado",!f.publicado)}>
+          <div>
+            <div style={{fontSize:"11px",fontWeight:700,color:f.publicado?"#34d399":"#64748b"}}>{f.publicado?"✓ Publicado":"— No publicado"}</div>
+            <div style={{fontSize:"9px",color:f.publicado?"#166534":"#334155",marginTop:2}}>{f.publicado?"Visible en Vista pública":"Solo visible en Editor y Seguimiento"}</div>
+          </div>
+          <div style={{width:36,height:20,borderRadius:10,background:f.publicado?"#166534":"#253347",position:"relative",transition:"background .2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:3,left:f.publicado?18:3,width:14,height:14,borderRadius:7,background:f.publicado?"#34d399":"#475569",transition:"left .2s"}}/>
+          </div>
+        </div>
+        {/* Completado toggle */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:f.completado?"#052e18":"#1a2535",border:`2px solid ${f.completado?"#22c55e":"#253347"}`,borderRadius:6,cursor:"pointer"}} onClick={()=>set("completado",!f.completado)}>
+          <div>
+            <div style={{fontSize:"11px",fontWeight:700,color:f.completado?"#22c55e":"#64748b"}}>{f.completado?"✓ Completado":"○ En progreso"}</div>
+            <div style={{fontSize:"9px",color:f.completado?"#166534":"#334155",marginTop:2}}>{f.completado?"Borde verde visible en todas las vistas":"Sin indicador de finalización"}</div>
+          </div>
+          <div style={{width:36,height:20,borderRadius:10,background:f.completado?"#166534":"#253347",position:"relative",transition:"background .2s",flexShrink:0}}>
+            <div style={{position:"absolute",top:3,left:f.completado?18:3,width:14,height:14,borderRadius:7,background:f.completado?"#22c55e":"#475569",transition:"left .2s"}}/>
+          </div>
+        </div>
+        <Fld label="NOMBRE"><input value={f.name} onChange={e=>set("name",e.target.value)} style={INP}/></Fld>
+        <Fld label="DESCRIPCIÓN"><textarea value={f.desc} onChange={e=>set("desc",e.target.value)} rows={3} placeholder="Describe de qué trata…" style={{...INP,resize:"vertical",lineHeight:1.6}}/></Fld>
         <Fld label="ENLACE / DOCUMENTO">
           <input value={f.url} onChange={e=>set("url",e.target.value)} placeholder="https://…" style={INP}/>
           {f.url&&<a href={f.url} target="_blank" rel="noreferrer" style={{fontSize:"9px",color:"#3b82f6",display:"block",marginTop:4}}>↗ abrir enlace</a>}
@@ -493,90 +607,72 @@ function CardPanel({card,D,onSave,onDelete,onClose}) {
         </Fld>
         <Fld label="ETIQUETAS">
           <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-            {D.tags.map(t=>{
-              const sel=f.tagIds.includes(t.id);
-              return <Pill key={t.id} color={t.color} active={sel}
-                onClick={()=>set("tagIds",sel?f.tagIds.filter(x=>x!==t.id):[...f.tagIds,t.id])}>{t.name}</Pill>;
-            })}
+            {D.tags.map(t=>{const sel=f.tagIds.includes(t.id);return(
+              <Pill key={t.id} color={t.color} active={sel} onClick={()=>set("tagIds",sel?f.tagIds.filter(x=>x!==t.id):[...f.tagIds,t.id])}>
+                {t.tipo==="publicada"&&"◆ "}{t.name}
+              </Pill>
+            );})}
           </div>
+          <div style={{fontSize:"8px",color:"#334155",marginTop:4}}>◆ = etiqueta publicada (visible en Vista pública)</div>
         </Fld>
-
         <Fld label="SUBTAREAS">
           <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:6}}>
             {f.subtasks.map((s,i)=>(
               <div key={s.id} style={{display:"flex",alignItems:"center",gap:5}}>
-                <input type="checkbox" checked={s.done} onChange={e=>updateSub(s.id,"done",e.target.checked)}
-                  style={{width:14,height:14,accentColor:"#22c55e",flexShrink:0,cursor:"pointer"}}/>
-                <input value={s.name} onChange={e=>updateSub(s.id,"name",e.target.value)}
-                  placeholder={`Subtarea ${i+1}`}
-                  style={{...INP,flex:1,padding:"4px 7px",fontSize:"11px"}}/>
-                <button onClick={()=>deleteSub(s.id)}
-                  style={{background:"none",border:"1px solid #1e293b",color:"#3f1818",cursor:"pointer",padding:"3px 6px",borderRadius:2,fontSize:"11px",flexShrink:0}}>✕</button>
+                <input type="checkbox" checked={s.done} onChange={e=>updateSub(s.id,"done",e.target.checked)} style={{width:14,height:14,accentColor:"#22c55e",flexShrink:0,cursor:"pointer"}}/>
+                <input value={s.name} onChange={e=>updateSub(s.id,"name",e.target.value)} placeholder={`Subtarea ${i+1}`} style={{...INP,flex:1,padding:"4px 7px",fontSize:"11px"}}/>
+                <button onClick={()=>deleteSub(s.id)} style={{background:"none",border:"1px solid #1e2d40",color:"#4a1010",cursor:"pointer",padding:"3px 7px",borderRadius:2,fontSize:"11px",flexShrink:0}}>✕</button>
               </div>
             ))}
           </div>
           <button onClick={addSub} style={{...BTN,width:"100%",padding:"5px",fontSize:"10px",borderStyle:"dashed"}}>+ subtarea</button>
         </Fld>
-
         <Fld label="DEPENDENCIAS">
-          <DepSelect value={f.deps} onChange={v=>set("deps",v)} cards={D.cards} rows={D.rows} currentId={card.id}/>
+          <DepSelect value={f.deps} onChange={v=>set("deps",v)} cards={D.cards} rows={D.rows} cols={cols} currentId={card.id}/>
         </Fld>
-
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <Fld label="SEMANA INICIO">
-            <input type="number" min={0} max={52} value={f.sw} onChange={e=>set("sw",+e.target.value)} style={INP}/>
-          </Fld>
-          <Fld label="SEMANA FIN">
-            <input type="number" min={0} max={52} value={f.ew} onChange={e=>set("ew",+e.target.value)} style={INP}/>
-          </Fld>
+          <Fld label="SEMANA INICIO"><input type="number" min={0} max={52} value={f.sw} onChange={e=>set("sw",+e.target.value)} style={INP}/></Fld>
+          <Fld label="SEMANA FIN"><input type="number" min={0} max={52} value={f.ew} onChange={e=>set("ew",+e.target.value)} style={INP}/></Fld>
         </div>
         <div style={{fontSize:"8px",color:"#1e3a5f",marginTop:-8}}>Para la futura vista Gantt</div>
       </div>
-
-      <div style={{padding:"12px 16px",borderTop:"1px solid #1e293b",display:"flex",gap:8,flexShrink:0}}>
-        <button onClick={()=>onSave(f)} style={{flex:1,background:"#1d4ed8",border:"none",color:"#fff",padding:"9px",cursor:"pointer",fontSize:"11px",letterSpacing:"1px",borderRadius:4,fontFamily:"inherit",fontWeight:700}}>
-          GUARDAR
-        </button>
-        <button onClick={onDelete} title="Eliminar"
-          style={{background:"none",border:"1px solid #1e293b",color:"#334155",padding:"9px 13px",cursor:"pointer",fontSize:"14px",borderRadius:4}}>🗑</button>
+      <div style={{padding:"12px 16px",borderTop:"1px solid #1e2d40",display:"flex",gap:8,flexShrink:0}}>
+        <button onClick={()=>onSave(f)} style={{flex:1,background:"#1d4ed8",border:"none",color:"#fff",padding:"9px",cursor:"pointer",fontSize:"11px",letterSpacing:"1px",borderRadius:4,fontFamily:"inherit",fontWeight:700}}>GUARDAR</button>
+        <button onClick={onDelete} style={{background:"none",border:"1px solid #1e2d40",color:"#334155",padding:"9px 13px",cursor:"pointer",fontSize:"14px",borderRadius:4}}>🗑</button>
       </div>
     </div>
   );
 }
 
-// ─── Dep select
-function DepSelect({value,onChange,cards,rows,currentId}) {
+// ────────────────────────────────────────────────────────────────
+// DEP SELECT
+// ────────────────────────────────────────────────────────────────
+function DepSelect({value,onChange,cards,rows,cols,currentId}){
   const [open,setOpen]=useState(false);
   const [q,setQ]=useState("");
   const ref=useRef(null);
-  useEffect(()=>{
-    const fn=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
-    document.addEventListener("mousedown",fn);
-    return()=>document.removeEventListener("mousedown",fn);
-  },[]);
+  useEffect(()=>{const fn=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener("mousedown",fn);return()=>document.removeEventListener("mousedown",fn);},[]);
   const others=cards.filter(c=>c.id!==currentId);
   const filtered=q?others.filter(c=>c.name.toLowerCase().includes(q.toLowerCase())):others;
   const toggle=id=>onChange(value.includes(id)?value.filter(x=>x!==id):[...value,id]);
-  const label=value.length?`${value.length} dependencia${value.length>1?"s":""}`:"Seleccionar…";
-  return (
+  return(
     <div ref={ref} style={{position:"relative"}}>
-      <button onClick={()=>setOpen(o=>!o)}
-        style={{...INP,textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",color:value.length?"#e2e8f0":"#475569"}}>
-        <span>{label}</span><span style={{color:"#475569",fontSize:"10px"}}>{open?"▲":"▼"}</span>
+      <button onClick={()=>setOpen(o=>!o)} style={{...INP,textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",color:value.length?"#e2e8f0":"#475569"}}>
+        <span>{value.length?`${value.length} dependencia${value.length>1?"s":""}`:"Seleccionar…"}</span>
+        <span style={{color:"#475569",fontSize:"10px"}}>{open?"▲":"▼"}</span>
       </button>
       {open&&(
-        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:200,background:"#0f172a",border:"1px solid #334155",borderRadius:4,marginTop:2,boxShadow:"0 8px 24px rgba(0,0,0,0.6)",maxHeight:220,display:"flex",flexDirection:"column"}}>
-          <div style={{padding:6,borderBottom:"1px solid #1e293b",flexShrink:0}}>
+        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:200,background:"#0d1520",border:"1px solid #334155",borderRadius:4,marginTop:2,boxShadow:"0 8px 24px rgba(0,0,0,0.7)",maxHeight:220,display:"flex",flexDirection:"column"}}>
+          <div style={{padding:6,borderBottom:"1px solid #1e2d40",flexShrink:0}}>
             <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" autoFocus style={{...INP,padding:"4px 8px",fontSize:"11px"}}/>
           </div>
           <div style={{overflow:"auto",flex:1}}>
             {filtered.length===0&&<div style={{padding:"10px 12px",fontSize:"11px",color:"#334155"}}>Sin resultados</div>}
             {filtered.map(c=>{
-              const row=rows.find(r=>r.id===c.rowId),col=COLS.find(x=>x.id===c.colId),sel=value.includes(c.id);
-              return (
-                <div key={c.id} onClick={()=>toggle(c.id)}
-                  style={{padding:"7px 10px",cursor:"pointer",display:"flex",alignItems:"flex-start",gap:8,background:sel?"#0f2240":"transparent",borderBottom:"1px solid #0f172a",transition:"background 0.1s"}}>
-                  <input type="checkbox" checked={sel} readOnly style={{marginTop:2,accentColor:"#3b82f6",flexShrink:0,cursor:"pointer"}}/>
+              const row=rows.find(r=>r.id===c.rowId),col=cols.find(x=>x.id===c.colId),sel=value.includes(c.id);
+              return(
+                <div key={c.id} onClick={()=>toggle(c.id)} style={{padding:"7px 10px",cursor:"pointer",display:"flex",alignItems:"flex-start",gap:8,background:sel?"#0f2344":"transparent",borderBottom:"1px solid #0d1520"}}>
+                  <input type="checkbox" checked={sel} readOnly style={{marginTop:2,accentColor:"#3b82f6",flexShrink:0}}/>
                   <div>
                     <div style={{fontSize:"11px",color:sel?"#e2e8f0":"#64748b",lineHeight:1.3}}>{c.name}</div>
                     <div style={{fontSize:"8px",color:"#1e3a5f",marginTop:2}}>{row?.name} · <span style={{color:col?.hl||"#475569"}}>{col?.label}</span></div>
@@ -591,71 +687,92 @@ function DepSelect({value,onChange,cards,rows,currentId}) {
   );
 }
 
-// ─── Settings panel
-function SettingsPanel({D,mut,onClose}) {
+// ────────────────────────────────────────────────────────────────
+// SETTINGS PANEL
+// ────────────────────────────────────────────────────────────────
+function SettingsPanel({D,mut,onClose}){
   const addOwner=()=>mut(d=>d.owners.push({id:"o"+uid(),name:"Nuevo responsable",color:"#3b82f6"}));
   const upOwner=(id,k,v)=>mut(d=>{const o=d.owners.find(o=>o.id===id);if(o)o[k]=v;});
   const delOwner=id=>mut(d=>{if(d.owners.length<=1)return;d.owners=d.owners.filter(o=>o.id!==id);const fb=d.owners[0].id;d.cards=d.cards.map(c=>({...c,ownerId:c.ownerId===id?fb:c.ownerId}));});
-  const addTag=()=>mut(d=>d.tags.push({id:"tg"+uid(),name:"Nueva etiqueta",color:"#3b82f6"}));
+  const addTag=()=>mut(d=>d.tags.push({id:"tg"+uid(),name:"Nueva etiqueta",color:"#3b82f6",tipo:"interna"}));
   const upTag=(id,k,v)=>mut(d=>{const t=d.tags.find(t=>t.id===id);if(t)t[k]=v;});
   const delTag=id=>mut(d=>{d.tags=d.tags.filter(t=>t.id!==id);d.cards=d.cards.map(c=>({...c,tagIds:c.tagIds.filter(x=>x!==id)}));});
-  return (
-    <div style={{width:290,background:"#0a1020",borderLeft:"2px solid #1e293b",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
-      <div style={{padding:"12px 16px",borderBottom:"1px solid #1e293b",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-        <span style={{fontSize:"11px",letterSpacing:"2px",color:"#60a5fa",fontWeight:600}}>⚙ CONFIGURACIÓN</span>
+  const upCol=(id,k,v)=>mut(d=>{if(!d.cols)d.cols=DEFAULT_COLS.map(c=>({...c}));const col=d.cols.find(c=>c.id===id);if(col)col[k]=v;});
+  const upConf=(k,v)=>mut(d=>{if(!d.config)d.config={};d.config[k]=v;});
+  const cols=D.cols||DEFAULT_COLS;
+  return(
+    <div style={{width:300,background:"#0d1520",borderLeft:"2px solid #1e2d40",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+      <div style={{padding:"12px 16px",borderBottom:"1px solid #1e2d40",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <span style={{fontSize:"11px",letterSpacing:"2px",color:"#34d399",fontWeight:700}}>⚙ CONFIGURACIÓN</span>
         <button onClick={onClose} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"18px",lineHeight:1,padding:0}}>✕</button>
       </div>
       <div style={{flex:1,overflow:"auto",padding:16,display:"flex",flexDirection:"column",gap:22}}>
+
+        {/* Access passwords */}
+        <Sec title="CONTRASEÑAS DE ACCESO">
+          <p style={{fontSize:"9px",color:"#334155",marginBottom:12,lineHeight:1.6}}>Comparte la contraseña de Seguimiento para acceso de lectura, y la de Editor solo con quien necesite modificar.</p>
+          <Fld label="CONTRASEÑA — SEGUIMIENTO">
+            <input type="text" value={D.config?.passSegui||""} onChange={e=>upConf("passSegui",e.target.value)} style={{...INP,borderColor:"#92400e66"}}/>
+          </Fld>
+          <div style={{height:10}}/>
+          <Fld label="CONTRASEÑA — EDITOR">
+            <input type="text" value={D.config?.passEditor||""} onChange={e=>upConf("passEditor",e.target.value)} style={{...INP,borderColor:"#065f4666"}}/>
+          </Fld>
+        </Sec>
+
+        {/* Columns */}
+        <Sec title="COLUMNAS — COLOR">
+          {cols.map(col=>(
+            <div key={col.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <input type="color" value={col.color} onChange={e=>upCol(col.id,"color",e.target.value)} style={{width:30,height:30,border:"2px solid #1e2d40",background:"none",cursor:"pointer",padding:3,borderRadius:4,flexShrink:0}}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:"12px",fontWeight:600,color:"#94a3b8"}}>{col.label}</div>
+                {col.grp&&<div style={{fontSize:"8px",color:"#475569"}}>Grupo: Sistemas</div>}
+              </div>
+              <div style={{width:20,height:20,borderRadius:3,background:col.color,border:"1px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
+            </div>
+          ))}
+        </Sec>
+
+        {/* Owners */}
         <Sec title="OWNERS / RESPONSABLES">
-          <p style={{fontSize:"9px",color:"#334155",marginBottom:10,lineHeight:1.6}}>Clic en el cuadro de color para personalizarlo.</p>
           {D.owners.map(o=>(
             <div key={o.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
-              <input type="color" value={o.color} onChange={e=>upOwner(o.id,"color",e.target.value)}
-                style={{width:30,height:30,border:"2px solid #1e293b",background:"none",cursor:"pointer",padding:3,borderRadius:4,flexShrink:0}}/>
-              <input value={o.name} onChange={e=>upOwner(o.id,"name",e.target.value)}
-                style={{...INP,flex:1,padding:"5px 8px",borderColor:o.color+"55"}}/>
-              <button onClick={()=>delOwner(o.id)}
-                style={{background:"none",border:"1px solid #1e293b",color:"#3f1818",cursor:"pointer",padding:"4px 8px",borderRadius:3,fontSize:"11px",flexShrink:0}}>✕</button>
+              <input type="color" value={o.color} onChange={e=>upOwner(o.id,"color",e.target.value)} style={{width:30,height:30,border:"2px solid #1e2d40",background:"none",cursor:"pointer",padding:3,borderRadius:4,flexShrink:0}}/>
+              <input value={o.name} onChange={e=>upOwner(o.id,"name",e.target.value)} style={{...INP,flex:1,padding:"5px 8px",borderColor:o.color+"55"}}/>
+              <button onClick={()=>delOwner(o.id)} style={{background:"none",border:"1px solid #1e2d40",color:"#4a1010",cursor:"pointer",padding:"4px 8px",borderRadius:3,fontSize:"11px",flexShrink:0}}>✕</button>
             </div>
           ))}
           <button onClick={addOwner} style={{...BTN,width:"100%",marginTop:4,padding:"7px",borderStyle:"dashed"}}>+ AÑADIR OWNER</button>
         </Sec>
+
+        {/* Tags */}
         <Sec title="ETIQUETAS">
+          <p style={{fontSize:"9px",color:"#334155",marginBottom:10,lineHeight:1.6}}>◆ Publicada = visible en Vista pública · Interna = solo Editor y Seguimiento.</p>
           {D.tags.map(t=>(
-            <div key={t.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
-              <input type="color" value={t.color} onChange={e=>upTag(t.id,"color",e.target.value)}
-                style={{width:30,height:30,border:"2px solid #1e293b",background:"none",cursor:"pointer",padding:3,borderRadius:4,flexShrink:0}}/>
-              <input value={t.name} onChange={e=>upTag(t.id,"name",e.target.value)}
-                style={{...INP,flex:1,padding:"5px 8px",borderColor:t.color+"55"}}/>
-              <button onClick={()=>delTag(t.id)}
-                style={{background:"none",border:"1px solid #1e293b",color:"#3f1818",cursor:"pointer",padding:"4px 8px",borderRadius:3,fontSize:"11px",flexShrink:0}}>✕</button>
+            <div key={t.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+              <input type="color" value={t.color} onChange={e=>upTag(t.id,"color",e.target.value)} style={{width:30,height:30,border:"2px solid #1e2d40",background:"none",cursor:"pointer",padding:3,borderRadius:4,flexShrink:0}}/>
+              <input value={t.name} onChange={e=>upTag(t.id,"name",e.target.value)} style={{...INP,flex:1,padding:"5px 8px",borderColor:t.color+"55"}}/>
+              <button onClick={()=>upTag(t.id,"tipo",t.tipo==="publicada"?"interna":"publicada")}
+                title={t.tipo==="publicada"?"Cambiar a interna":"Cambiar a publicada"}
+                style={{background:t.tipo==="publicada"?"#052e18":"#1a2535",border:`1px solid ${t.tipo==="publicada"?"#166534":"#253347"}`,color:t.tipo==="publicada"?"#34d399":"#475569",cursor:"pointer",padding:"3px 7px",borderRadius:3,fontSize:"9px",flexShrink:0,fontWeight:700}}>
+                {t.tipo==="publicada"?"◆ PUB":"INT"}
+              </button>
+              <button onClick={()=>delTag(t.id)} style={{background:"none",border:"1px solid #1e2d40",color:"#4a1010",cursor:"pointer",padding:"4px 7px",borderRadius:3,fontSize:"11px",flexShrink:0}}>✕</button>
             </div>
           ))}
           <button onClick={addTag} style={{...BTN,width:"100%",marginTop:4,padding:"7px",borderStyle:"dashed"}}>+ AÑADIR ETIQUETA</button>
-        </Sec>
-        <Sec title="COLUMNAS">
-          <p style={{fontSize:"9px",color:"#334155",lineHeight:1.7}}>
-            {COLS.map(c=><span key={c.id} style={{display:"block",color:c.hl,marginBottom:3}}>→ {c.label}{c.grp?" (Sistemas)":""}</span>)}
-          </p>
         </Sec>
       </div>
     </div>
   );
 }
 
-// ─── Micro components
-const Fld=({label,children})=>(
-  <div><div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:5,fontWeight:600}}>{label}</div>{children}</div>
-);
-const Sec=({title,children})=>(
-  <div><div style={{fontSize:"8px",letterSpacing:"3px",color:"#334155",marginBottom:10,paddingBottom:6,borderBottom:"1px solid #1e293b",fontWeight:600}}>{title}</div>{children}</div>
-);
-const Pill=({children,color,active,onClick})=>(
-  <button onClick={onClick} style={{fontSize:"9px",padding:"3px 10px",borderRadius:20,border:`1.5px solid ${color}`,background:active?color:"transparent",color:active?"#fff":color,cursor:"pointer",transition:"all 0.15s",fontFamily:"inherit",fontWeight:500,lineHeight:1.4}}>
-    {children}
-  </button>
-);
-const Divider=()=><div style={{width:1,height:28,background:"#1e293b",margin:"0 4px",flexShrink:0}}/>;
+// ── Micro
+const Fld=({label,children})=>(<div><div style={{fontSize:"8px",letterSpacing:"2px",color:"#2d4060",marginBottom:5,fontWeight:700}}>{label}</div>{children}</div>);
+const Sec=({title,children})=>(<div><div style={{fontSize:"8px",letterSpacing:"3px",color:"#2d4060",marginBottom:10,paddingBottom:6,borderBottom:"1px solid #1e2d40",fontWeight:700}}>{title}</div>{children}</div>);
+const Pill=({children,color,active,onClick})=>(<button onClick={onClick} style={{fontSize:"9px",padding:"3px 10px",borderRadius:20,border:`1.5px solid ${color}`,background:active?color:"transparent",color:active?"#fff":color,cursor:"pointer",transition:"all .15s",fontFamily:"inherit",fontWeight:600,lineHeight:1.4}}>{children}</button>);
+const VD=()=><div style={{width:1,height:28,background:"#1e2d40",margin:"0 4px",flexShrink:0}}/>;
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
