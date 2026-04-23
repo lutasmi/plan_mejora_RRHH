@@ -34,8 +34,39 @@ const SUPA_URL="https://dlbysoybuanzfbgbqgwi.supabase.co";
 const SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsYnlzb3lidWFuemZiZ2JxZ3dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTAxNzYsImV4cCI6MjA5MjUyNjE3Nn0.H1te91wXuuqwH0Farbz2Zt5eXeza0rBvlENLxh1Q18E";
 const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
 
-async function dbLoad(){try{const{data}=await sb.from("app_data").select("value").eq("key",SKEY).single();return data?JSON.parse(data.value):null;}catch{return null;}}
-async function dbSave(v){try{await sb.from("app_data").upsert({key:SKEY,value:JSON.stringify(v),updated_at:new Date().toISOString()});}catch(e){console.error(e);}}
+const LKEY="plan-mejora-local"; // localStorage backup key
+
+async function dbLoad(){
+  // 1. Try Supabase (source of truth)
+  try{
+    const{data,error}=await sb.from("app_data").select("value").eq("key",SKEY).single();
+    if(data&&!error){
+      const parsed=JSON.parse(data.value);
+      try{localStorage.setItem(LKEY,data.value);}catch(e){} // sync to local
+      return{data:parsed,source:"cloud"};
+    }
+  }catch(e){console.warn("Supabase load failed:",e);}
+  // 2. Fall back to localStorage
+  try{
+    const local=localStorage.getItem(LKEY);
+    if(local)return{data:JSON.parse(local),source:"local"};
+  }catch(e){console.warn("localStorage load failed:",e);}
+  return{data:null,source:"none"};
+}
+
+async function dbSave(v){
+  const str=JSON.stringify(v);
+  // Always save to localStorage first (instant, never fails)
+  try{localStorage.setItem(LKEY,str);}catch(e){console.warn("localStorage save failed:",e);}
+  // Then save to Supabase
+  try{
+    await sb.from("app_data").upsert({key:SKEY,value:str,updated_at:new Date().toISOString()});
+    return{ok:true};
+  }catch(e){
+    console.error("Supabase save failed:",e);
+    return{ok:false,error:e.message};
+  }
+}
 
 // ── Layers
 const L={C:"consulta",S:"seguimiento",E:"editor"};
@@ -166,13 +197,33 @@ function App(){
   const cardRefs=useRef({});
   const scrollRef=useRef(null);
 
-  useEffect(()=>{dbLoad().then(d=>{setD(migrate(d||JSON.parse(JSON.stringify(INIT))));setLoading(false);});},[]);
+  const [dataSource,setDataSource]=useState(""); // "cloud"|"local"|"new"
+  useEffect(()=>{
+    dbLoad().then(({data,source})=>{
+      setD(migrate(data||JSON.parse(JSON.stringify(INIT))));
+      setDataSource(data?source:"new");
+      setLoading(false);
+    });
+  },[]);
 
+  // Save to localStorage immediately before tab closes
+  useEffect(()=>{
+    const fn=()=>{if(D)try{localStorage.setItem(LKEY,JSON.stringify(D));}catch(e){}};
+    window.addEventListener("beforeunload",fn);
+    return()=>window.removeEventListener("beforeunload",fn);
+  },[D]);
+
+  const [saveStatus,setSaveStatus]=useState("ok"); // "ok"|"saving"|"error"|"local"
   useEffect(()=>{
     if(!D||loading)return;
-    setSaved(false);
+    setSaveStatus("saving");
     if(saveTimer.current)clearTimeout(saveTimer.current);
-    saveTimer.current=setTimeout(()=>dbSave(D).then(()=>setSaved(true)),1000);
+    saveTimer.current=setTimeout(()=>{
+      dbSave(D).then(result=>{
+        setSaveStatus(result.ok?"ok":"local");
+        setSaved(result.ok);
+      });
+    },1000);
     return()=>clearTimeout(saveTimer.current);
   },[D]);
 
@@ -260,7 +311,19 @@ function App(){
 
           <div style={{flex:1}}/>
 
-          {canEdit&&<span style={{fontSize:"9px",color:saved?"#22c55e":"#f59e0b",minWidth:80}}>{saved?"✓ guardado":"guardando…"}</span>}
+          {canEdit&&<span style={{
+            fontSize:"9px",
+            color:saveStatus==="ok"?"#22c55e":saveStatus==="error"?"#ef4444":saveStatus==="local"?"#f59e0b":"#64748b",
+            minWidth:100,
+            display:"flex",alignItems:"center",gap:4,
+          }}>
+            {saveStatus==="ok"&&"☁ guardado"}
+            {saveStatus==="saving"&&"⏳ guardando…"}
+            {saveStatus==="local"&&"⚠ solo local"}
+            {saveStatus==="error"&&"✗ error"}
+          </span>}
+          {canEdit&&dataSource==="local"&&<span style={{fontSize:"8px",color:"#f59e0b",background:"#451a0320",border:"1px solid #92400e",padding:"2px 7px",borderRadius:3}}>⚠ cargado de copia local</span>}
+          {canEdit&&<button title="Guardar ahora en Supabase" onClick={()=>{setSaveStatus("saving");dbSave(D).then(r=>{setSaveStatus(r.ok?"ok":"local");setSaved(r.ok);});}} style={{...BTN,padding:"3px 8px",fontSize:"9px",borderColor:"#1e3a5f",color:"#334155"}}>💾</button>}
           {!isPublicView&&<button onClick={()=>setShowFlow(f=>!f)} style={{...BTN,background:showFlow?"#1d4ed8":"transparent",color:showFlow?"#fff":"#94a3b8",borderColor:showFlow?"#3b82f6":"#334155"}}>{showFlow?"◈ Flujo ON":"◈ Flujo OFF"}</button>}
           {canEdit&&<button onClick={()=>exportCSV(D)} style={BTN}>↓ CSV</button>}
           {canEdit&&<button onClick={()=>setPanel(p=>p==="settings"?null:"settings")} style={{...BTN,borderColor:panel==="settings"?"#3b82f6":"#334155",color:panel==="settings"?"#60a5fa":"#94a3b8"}}>⚙ Config</button>}
