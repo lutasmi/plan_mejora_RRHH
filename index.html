@@ -64,7 +64,7 @@ async function dbSave(v){
   // 2. Save to Supabase — IMPORTANT: supabase-js never throws, must check {error}
   try{
     const{error}=await sb.from("app_data")
-      .upsert({key:SKEY,value:str,updated_at:new Date().toISOString()},{onConflict:"key"});
+      .upsert({key:SKEY,value:str},{onConflict:"key"});
     if(error){
       console.error("Supabase upsert error:",error);
       return{ok:false,error:error.message||JSON.stringify(error)};
@@ -83,7 +83,7 @@ async function testSupabase(){
   // Write
   try{
     const{error}=await sb.from("app_data")
-      .upsert({key:tKey,value:tVal,updated_at:new Date().toISOString()},{onConflict:"key"});
+      .upsert({key:tKey,value:tVal},{onConflict:"key"});
     if(error)return{ok:false,step:"escritura",msg:error.message||JSON.stringify(error)};
   }catch(e){return{ok:false,step:"escritura",msg:e.message||String(e)};}
   // Read back
