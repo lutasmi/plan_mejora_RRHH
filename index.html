@@ -126,10 +126,23 @@ function topoSort(cards){
   for(const c of cards)if(!vis.has(c.id))out.push(c.id);
   return out.map(id=>cards.find(c=>c.id===id)).filter(Boolean);
 }
-function intraCellEdges(cards){
-  const ids=new Set(cards.map(c=>c.id)),edges=new Set();
-  for(const c of cards)for(const d of(c.deps||[]))if(ids.has(d))edges.add(`${d}:${c.id}`);
-  return edges;
+function getCellGroups(cards){
+  if(!cards.length)return[];
+  const ids=new Set(cards.map(c=>c.id));
+  const adj={};
+  for(const c of cards)adj[c.id]=[];
+  for(const c of cards)for(const d of(c.deps||[]))if(ids.has(d)){adj[c.id].push(d);adj[d].push(c.id);}
+  const vis=new Set(),groups=[];
+  for(const c of cards){
+    if(vis.has(c.id))continue;
+    const comp=[],q=[c.id];
+    while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);comp.push(cards.find(x=>x.id===id));(adj[id]||[]).forEach(n=>q.push(n));}
+    const sorted=topoSort(comp);
+    const edges=new Set();
+    for(const x of comp)for(const d of(x.deps||[]))if(ids.has(d))edges.add(d+":"+x.id);
+    groups.push({cards:sorted,isGroup:comp.length>1,edges});
+  }
+  return groups;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -163,8 +176,9 @@ function App(){
     return()=>clearTimeout(saveTimer.current);
   },[D]);
 
-  const recompute=()=>{
-    if(!showFlow||!D||!scrollRef.current){setArrows([]);return;}
+  // Arrow computation — uses RAF to ensure DOM is painted before measuring
+  const computeArrowsFn=()=>{
+    if(!scrollRef.current||!D)return;
     const sc=scrollRef.current,scr=sc.getBoundingClientRect();
     setSvgDims({w:sc.scrollWidth,h:sc.scrollHeight});
     const list=[];
@@ -175,14 +189,19 @@ function App(){
         const fe=cardRefs.current[depId],te=cardRefs.current[card.id];
         if(!fe||!te)continue;
         const fr=fe.getBoundingClientRect(),tr=te.getBoundingClientRect();
-        list.push({id:`${depId}>${card.id}`,
+        list.push({id:depId+">"+card.id,
           x1:fr.right-scr.left+sc.scrollLeft, y1:fr.top+fr.height/2-scr.top+sc.scrollTop,
           x2:tr.left-scr.left+sc.scrollLeft,  y2:tr.top+tr.height/2-scr.top+sc.scrollTop});
       }
     }
     setArrows(list);
   };
-  useLayoutEffect(()=>{recompute();},[showFlow,D,loading]);
+  const recompute=()=>{if(showFlow)requestAnimationFrame(computeArrowsFn);else setArrows([]);};
+  useEffect(()=>{
+    if(!showFlow||!D||loading){setArrows([]);return;}
+    const id=requestAnimationFrame(computeArrowsFn);
+    return()=>cancelAnimationFrame(id);
+  },[showFlow,D,loading]);
 
   const mut=fn=>setD(d=>{const nd=JSON.parse(JSON.stringify(d));fn(nd);return nd;});
   const cols=()=>D?.cols||DEFAULT_COLS;
@@ -242,7 +261,7 @@ function App(){
           <div style={{flex:1}}/>
 
           {canEdit&&<span style={{fontSize:"9px",color:saved?"#22c55e":"#f59e0b",minWidth:80}}>{saved?"✓ guardado":"guardando…"}</span>}
-          {!isPublicView&&<button onClick={()=>{setShowFlow(f=>!f);setTimeout(recompute,80);}} style={{...BTN,background:showFlow?"#1d4ed8":"transparent",color:showFlow?"#fff":"#94a3b8",borderColor:showFlow?"#3b82f6":"#334155"}}>{showFlow?"◈ Flujo ON":"◈ Flujo OFF"}</button>}
+          {!isPublicView&&<button onClick={()=>setShowFlow(f=>!f)} style={{...BTN,background:showFlow?"#1d4ed8":"transparent",color:showFlow?"#fff":"#94a3b8",borderColor:showFlow?"#3b82f6":"#334155"}}>{showFlow?"◈ Flujo ON":"◈ Flujo OFF"}</button>}
           {canEdit&&<button onClick={()=>exportCSV(D)} style={BTN}>↓ CSV</button>}
           {canEdit&&<button onClick={()=>setPanel(p=>p==="settings"?null:"settings")} style={{...BTN,borderColor:panel==="settings"?"#3b82f6":"#334155",color:panel==="settings"?"#60a5fa":"#94a3b8"}}>⚙ Config</button>}
           {/* Acceder / Salir */}
@@ -324,7 +343,7 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
   const gc=`${LW}px repeat(${cols.length}, minmax(${CW}px,1fr))`;
 
   return(
-    <div style={{display:"grid",gridTemplateColumns:gc,minWidth:LW+cols.length*CW}}>
+    <div style={{display:"grid",gridTemplateColumns:gc,minWidth:LW+cols.length*CW,columnGap:"3px"}}>
       {/* Super-header SISTEMAS */}
       <div style={{position:"sticky",top:0,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"1px solid #1a2535",height:22}}/>
       {cols.map((col,ci)=>{
@@ -358,28 +377,15 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
           ...cols.map(col=>{
             let cc=D.cards.filter(c=>c.rowId===row.id&&c.colId===col.id);
             if(isPublic)cc=cc.filter(c=>c.publicado);
-            const sorted=topoSort(cc);
-            const edges=intraCellEdges(cc);
             return(
               <div key={"C"+row.id+col.id} style={{background:bg,borderLeft:"1px solid #1e2d40",borderBottom:"1px solid #1e2d40",padding:"7px",minHeight:110,display:"flex",flexDirection:"column",gap:0}}>
-                {sorted.map((c,ci2)=>{
-                  const prev=sorted[ci2-1];
-                  const conn=prev&&edges.has(`${prev.id}:${c.id}`);
-                  return(
-                    <div key={c.id}>
-                      {conn&&<div style={{display:"flex",alignItems:"center",padding:"2px 4px",gap:4}}><div style={{flex:1,height:"1px",background:"#2d4060"}}/><span style={{fontSize:"9px",color:"#3b5070",lineHeight:1}}>▼</span><div style={{flex:1,height:"1px",background:"#2d4060"}}/></div>}
-                      <div style={{marginBottom:conn?0:5}}>
-                        <CardChip card={c} D={D} col={col} layer={layer}
-                          visible={isVisible(c)} hasFilter={hasFilter}
-                          highlighted={!isPublic&&hlId&&related.has(c.id)}
-                          dimmed={!isPublic&&!!hlId&&!related.has(c.id)}
-                          onClick={()=>onEdit(c)}
-                          onHl={e=>{e.stopPropagation();onHl(c.id);}}
-                          cardRefs={cardRefs}/>
-                      </div>
-                    </div>
-                  );
-                })}
+                {getCellGroups(cc).map((grp,gi)=>(
+                  <CellGroup key={gi} group={grp} D={D} col={col} layer={layer}
+                    isVisible={isVisible} hasFilter={hasFilter}
+                    hlId={hlId} related={related}
+                    onEdit={onEdit} onHl={onHl} cardRefs={cardRefs}
+                    isPublic={isPublic}/>
+                ))}
                 {canEdit&&(
                   <div style={{marginTop:"auto",paddingTop:5}}>
                     <button className="addrow" onClick={()=>onAdd(row.id,col.id)} style={{width:"100%",background:"none",border:"1px dashed #1e2d40",color:"#1e2d40",padding:"3px",fontSize:"13px",cursor:"pointer",borderRadius:3,lineHeight:1,transition:"all .15s"}}>＋</button>
@@ -395,6 +401,57 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
           <button className="addrow" onClick={onAddRow} style={{background:"none",border:"1px dashed #1e2d40",color:"#253347",cursor:"pointer",padding:"7px 44px",fontSize:"9px",letterSpacing:"2px",borderRadius:3,transition:"all .15s"}}>+ AÑADIR ETAPA</button>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────
+// CELL GROUP — dashed frame for related cards, normal for singles
+// ────────────────────────────────────────────────────────────────
+function CellGroup({group,D,col,layer,isVisible,hasFilter,hlId,related,onEdit,onHl,cardRefs,isPublic}){
+  const chipProps=(card)=>({
+    card,D,col,layer,
+    visible:isVisible(card),hasFilter,
+    highlighted:!isPublic&&hlId&&related.has(card.id),
+    dimmed:!isPublic&&!!hlId&&!related.has(card.id),
+    onClick:()=>onEdit(card),
+    onHl:e=>{e.stopPropagation();onHl(card.id);},
+    cardRefs,
+  });
+
+  if(!group.isGroup){
+    return <div style={{marginBottom:6}}><CardChip {...chipProps(group.cards[0])}/></div>;
+  }
+
+  return(
+    <div style={{
+      border:"1.5px dashed #2d4a6a",
+      borderRadius:7,
+      padding:"7px 6px 5px",
+      background:"rgba(20,35,55,0.45)",
+      marginBottom:7,
+      position:"relative",
+    }}>
+      {/* Group label */}
+      <div style={{position:"absolute",top:-8,left:10,background:"#16202e",padding:"0 6px",fontSize:"7px",letterSpacing:"2px",color:"#3b5c80",fontWeight:700,whiteSpace:"nowrap"}}>
+        FLUJO · {group.cards.length} PASOS
+      </div>
+      {group.cards.map((card,i)=>{
+        const prev=group.cards[i-1];
+        const hasArrow=prev&&group.edges.has(prev.id+":"+card.id);
+        return(
+          <div key={card.id}>
+            {hasArrow&&(
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"4px 0",gap:1}}>
+                <div style={{width:2,height:8,background:"#2d4a6a",borderRadius:1}}/>
+                <div style={{width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid #2d4a6a"}}/>
+              </div>
+            )}
+            <CardChip {...chipProps(card)}/>
+          </div>
+        );
+      })}
     </div>
   );
 }
