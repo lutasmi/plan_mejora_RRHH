@@ -129,6 +129,7 @@ const INIT={
     {id:"r9",name:"Expatriación"},{id:"r10",name:"Desvinculación / Offboarding"},
   ],
   cards:[],
+  bridges:{},
   owners:[
     {id:"o1",name:"Sin asignar",color:"#475569"},
     {id:"o2",name:"HR Director",color:"#ef4444"},
@@ -154,6 +155,7 @@ function migrate(d){
   if(!d.config.passSegui) d.config.passSegui="seguimiento";
   if(!d.config.passEditor)d.config.passEditor="editor";
   d.tags  = d.tags.map(t=>({tipo:"interna",...t}));
+  if(!d.bridges)d.bridges={};
   d.cards = d.cards.map(c=>{
     const base={publicado:false,completado:false,subtasks:[],deps:[],steps:[],...c};
     // Migrate subtasks→steps if steps empty
@@ -425,15 +427,8 @@ function App(){
       {processCard&&<ProcessModal
         card={processCard} D={D} cols={cols()}
         onClose={()=>setProcessCard(null)}
-        onSaveCard={c=>{mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});setProcessCard(c);}}
-        onNav={dir=>{
-          const all=D.cards;
-          const idx=all.findIndex(c=>c.id===processCard.id);
-          const next=all[idx+dir];
-          if(next)setProcessCard(next);
-        }}
-        canNavPrev={D.cards.findIndex(c=>c.id===processCard.id)>0}
-        canNavNext={D.cards.findIndex(c=>c.id===processCard.id)<D.cards.length-1}
+        onSaveCard={c=>{mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});}}
+        onSaveBridges={nb=>{mut(d=>{d.bridges=nb;});}}
       />}
     </div>
   );
@@ -442,229 +437,344 @@ function App(){
 
 
 // ────────────────────────────────────────────────────────────────
-// PROCESS MODAL — full-screen horizontal flow view
+// PROCESS MODAL — full connected-component flow view
 // ────────────────────────────────────────────────────────────────
 const STEP_STATUS=[
-  {id:"pendiente",  label:"Pendiente",   color:"#334155", bg:"#1e293b", icon:"⬜"},
-  {id:"en_curso",   label:"En curso",    color:"#1d4ed8", bg:"#0f2240", icon:"🔵"},
-  {id:"bloqueado",  label:"Bloqueado",   color:"#dc2626", bg:"#2d0a0a", icon:"🔴"},
-  {id:"completado", label:"Completado",  color:"#16a34a", bg:"#052e18", icon:"✅"},
+  {id:"pendiente", label:"Pendiente",  color:"#475569", bg:"#1e293b", dot:"#475569"},
+  {id:"en_curso",  label:"En curso",   color:"#1d4ed8", bg:"#0f2240", dot:"#3b82f6"},
+  {id:"bloqueado", label:"Bloqueado",  color:"#dc2626", bg:"#2d0a0a", dot:"#ef4444"},
+  {id:"completado",label:"Completado", color:"#16a34a", bg:"#052e18", dot:"#22c55e"},
 ];
 const nextStatus=id=>{const i=STEP_STATUS.findIndex(s=>s.id===id);return STEP_STATUS[(i+1)%STEP_STATUS.length].id;};
+const uid2=()=>Math.random().toString(36).slice(2,9);
 
-function ProcessModal({card,D,cols,onClose,onSaveCard,onNav,canNavPrev,canNavNext}){
-  const [localCard,setLocalCard]=useState({...card,steps:(card.steps||[]).map(s=>({...s}))});
-  const [editingStep,setEditingStep]=useState(null);
-  const col=cols.find(c=>c.id===localCard.colId);
-  const row=D.rows.find(r=>r.id===localCard.rowId);
-  const steps=localCard.steps||[];
-  const done=steps.filter(s=>s.status==="completado").length;
-  const blocked=steps.filter(s=>s.status==="bloqueado").length;
-  const pct=steps.length?Math.round((done/steps.length)*100):0;
+// Get connected component of a card (all cards reachable via deps in either direction)
+function getConnectedComponent(startCard, allCards){
+  const adj={};
+  for(const c of allCards){adj[c.id]=new Set();}
+  for(const c of allCards) for(const d of(c.deps||[])) if(adj[d]){adj[c.id].add(d);adj[d].add(c.id);}
+  const vis=new Set(), q=[startCard.id];
+  while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);(adj[id]||new Set()).forEach(n=>q.push(n));}
+  return allCards.filter(c=>vis.has(c.id));
+}
 
-  // Sync when card prop changes (navigation)
-  useEffect(()=>{ setLocalCard({...card,steps:(card.steps||[]).map(s=>({...s}))}); setEditingStep(null); },[card.id]);
+// Topological sort within component
+function topoSortComp(cards){
+  const ids=new Set(cards.map(c=>c.id));
+  const inDeg={},adj={};
+  for(const c of cards){inDeg[c.id]=0;adj[c.id]=[];}
+  for(const c of cards) for(const d of(c.deps||[])) if(ids.has(d)){adj[d].push(c.id);inDeg[c.id]++;}
+  const q=cards.filter(c=>inDeg[c.id]===0).map(c=>c.id);
+  const out=[];const vis=new Set();
+  while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);out.push(id);for(const n of adj[id])if(!vis.has(n)&&--inDeg[n]===0)q.push(n);}
+  cards.forEach(c=>{if(!vis.has(c.id))out.push(c.id);});
+  return out.map(id=>cards.find(c=>c.id===id)).filter(Boolean);
+}
 
-  const updateStep=(id,k,v)=>{
-    const updated={...localCard,steps:localCard.steps.map(s=>s.id===id?{...s,[k]:v}:s)};
-    setLocalCard(updated);
+function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
+  const [bridges,setBridges]=useState(()=>JSON.parse(JSON.stringify(D.bridges||{})));
+  const [editingStep,setEditingStep]=useState(null); // {nodeId, stepId} or {bridgeKey, stepId}
+  const scrollRef=useRef(null);
+
+  // Get the full connected component sorted
+  const component=topoSortComp(getConnectedComponent(card, D.cards));
+  const isSingle=component.length===1;
+
+  // Count stats across whole flow
+  const allSteps=[
+    ...component.flatMap(c=>(c.steps||[])),
+    ...Object.values(bridges).flat()
+  ];
+  const done=allSteps.filter(s=>s.status==="completado").length;
+  const blocked=allSteps.filter(s=>s.status==="bloqueado").length;
+  const pct=allSteps.length?Math.round((done/allSteps.length)*100):0;
+
+  // Save bridges to parent
+  const saveBridges=(nb)=>{setBridges(nb);onSaveBridges(nb);};
+
+  const updateCardStep=(cardId,stepId,k,v)=>{
+    const c=D.cards.find(x=>x.id===cardId);
+    if(!c)return;
+    const updated={...c,steps:(c.steps||[]).map(s=>s.id===stepId?{...s,[k]:v}:s)};
     onSaveCard(updated);
   };
-  const addStep=()=>{
-    const ns={id:uid(),name:"Nuevo paso",desc:"",ownerId:localCard.ownerId||"o1",tagIds:[],status:"pendiente"};
-    const updated={...localCard,steps:[...localCard.steps,ns]};
-    setLocalCard(updated);
+  const addCardStep=(cardId)=>{
+    const c=D.cards.find(x=>x.id===cardId);
+    if(!c)return;
+    const ns={id:uid2(),name:"Nuevo paso",desc:"",ownerId:c.ownerId||"o1",tagIds:[],status:"pendiente"};
+    const updated={...c,steps:[...(c.steps||[]),ns]};
     onSaveCard(updated);
-    setEditingStep(ns.id);
+    setEditingStep({nodeId:cardId,stepId:ns.id});
   };
-  const deleteStep=id=>{
-    const updated={...localCard,steps:localCard.steps.filter(s=>s.id!==id)};
-    setLocalCard(updated);
-    onSaveCard(updated);
-    if(editingStep===id)setEditingStep(null);
+  const deleteCardStep=(cardId,stepId)=>{
+    const c=D.cards.find(x=>x.id===cardId);
+    if(!c)return;
+    onSaveCard({...c,steps:(c.steps||[]).filter(s=>s.id!==stepId)});
+    if(editingStep?.stepId===stepId)setEditingStep(null);
   };
 
-  // keyboard nav
+  const getBridgeKey=(a,b)=>a.id+":"+b.id;
+  const getBridgeSteps=(key)=>bridges[key]||[];
+  const updateBridgeStep=(key,stepId,k,v)=>{
+    const nb={...bridges,[key]:(bridges[key]||[]).map(s=>s.id===stepId?{...s,[k]:v}:s)};
+    saveBridges(nb);
+  };
+  const addBridgeStep=(key,cardA)=>{
+    const ns={id:uid2(),name:"Paso intermedio",desc:"",ownerId:cardA.ownerId||"o1",tagIds:[],status:"pendiente"};
+    const nb={...bridges,[key]:[...(bridges[key]||[]),ns]};
+    saveBridges(nb);
+    setEditingStep({bridgeKey:key,stepId:ns.id});
+  };
+  const deleteBridgeStep=(key,stepId)=>{
+    const nb={...bridges,[key]:(bridges[key]||[]).filter(s=>s.id!==stepId)};
+    saveBridges(nb);
+    if(editingStep?.stepId===stepId)setEditingStep(null);
+  };
+
+  // keyboard
   useEffect(()=>{
-    const fn=e=>{
-      if(e.key==="Escape")onClose();
-      if(e.key==="ArrowLeft"&&canNavPrev)onNav(-1);
-      if(e.key==="ArrowRight"&&canNavNext)onNav(1);
-    };
+    const fn=e=>{if(e.key==="Escape")onClose();};
     window.addEventListener("keydown",fn);
     return()=>window.removeEventListener("keydown",fn);
-  },[canNavPrev,canNavNext]);
+  },[]);
+
+  // Has dep edge between two cards?
+  const hasEdge=(a,b)=>(b.deps||[]).includes(a.id);
 
   return(
     <div className="process-modal">
-      {/* ── Top bar */}
-      <div style={{background:"#070d14",borderBottom:`2px solid ${col?.color||"#1e3a5f"}`,padding:"12px 24px",flexShrink:0}}>
+      {/* Top bar */}
+      <div style={{background:"#070d14",borderBottom:"2px solid #1e3a5f",padding:"12px 24px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
-          {/* Nav prev */}
-          <button onClick={()=>canNavPrev&&onNav(-1)} style={{background:"none",border:"1px solid #1e3a5f",color:canNavPrev?"#60a5fa":"#1e3a5f",cursor:canNavPrev?"pointer":"default",padding:"6px 12px",borderRadius:4,fontSize:"16px",lineHeight:1,flexShrink:0}}>‹</button>
-
           <div style={{flex:1,minWidth:0}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
-              <span style={{fontSize:"9px",letterSpacing:"3px",color:col?.hl||"#60a5fa"}}>{row?.name} · {col?.label}</span>
-              {blocked>0&&<span style={{fontSize:"9px",fontWeight:700,color:"#ef4444",background:"#2d0a0a",padding:"2px 8px",borderRadius:10,border:"1px solid #7f1d1d"}}>⚠ {blocked} bloqueado{blocked>1?"s":""}</span>}
-            </div>
-            <div style={{fontSize:"20px",fontWeight:800,color:"#f1f5f9",lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{localCard.name}</div>
-          </div>
-
-          {/* Progress */}
-          <div style={{textAlign:"right",flexShrink:0}}>
-            <div style={{fontSize:"22px",fontWeight:800,color:pct===100?"#22c55e":blocked>0?"#ef4444":"#60a5fa"}}>{pct}%</div>
-            <div style={{fontSize:"9px",color:"#334155"}}>{done}/{steps.length} completados</div>
-            <div style={{width:80,height:4,background:"#1e293b",borderRadius:2,marginTop:4}}>
-              <div style={{width:pct+"%",height:"100%",background:pct===100?"#22c55e":blocked>0?"#ef4444":"#3b82f6",borderRadius:2,transition:"width .3s"}}/>
+            <div style={{fontSize:"9px",letterSpacing:"3px",color:"#3b82f6",marginBottom:4}}>VISTA DE PROCESO · {component.length} ENTRADA{component.length>1?"S":""}</div>
+            <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {isSingle?card.name:component.map(c=>c.name).join(" → ")}
             </div>
           </div>
-
-          {/* Nav next */}
-          <button onClick={()=>canNavNext&&onNav(1)} style={{background:"none",border:"1px solid #1e3a5f",color:canNavNext?"#60a5fa":"#1e3a5f",cursor:canNavNext?"pointer":"default",padding:"6px 12px",borderRadius:4,fontSize:"16px",lineHeight:1,flexShrink:0}}>›</button>
-
-          <button onClick={onClose} style={{background:"none",border:"1px solid #334155",color:"#64748b",cursor:"pointer",padding:"6px 12px",borderRadius:4,fontSize:"16px",lineHeight:1,flexShrink:0}}>✕</button>
+          {allSteps.length>0&&(
+            <div style={{flexShrink:0,textAlign:"right"}}>
+              {blocked>0&&<div style={{fontSize:"10px",fontWeight:700,color:"#ef4444",background:"#2d0a0a",padding:"3px 10px",borderRadius:10,border:"1px solid #7f1d1d",marginBottom:4,display:"inline-block"}}>⚠ {blocked} bloqueado{blocked>1?"s":""}</div>}
+              <div style={{fontSize:"22px",fontWeight:800,color:pct===100?"#22c55e":blocked>0?"#ef4444":"#60a5fa",lineHeight:1}}>{pct}%</div>
+              <div style={{fontSize:"9px",color:"#334155"}}>{done}/{allSteps.length} pasos</div>
+              <div style={{width:80,height:4,background:"#1e293b",borderRadius:2,marginTop:4,marginLeft:"auto"}}>
+                <div style={{width:pct+"%",height:"100%",background:pct===100?"#22c55e":blocked>0?"#ef4444":"#3b82f6",borderRadius:2,transition:"width .3s"}}/>
+              </div>
+            </div>
+          )}
+          <button onClick={onClose} style={{background:"none",border:"1px solid #334155",color:"#64748b",cursor:"pointer",padding:"8px 14px",borderRadius:4,fontSize:"16px",lineHeight:1,flexShrink:0}}>✕</button>
         </div>
       </div>
 
-      {/* ── Steps horizontal scroll */}
-      <div style={{flex:1,overflow:"auto",padding:"32px 24px",display:"flex",alignItems:"flex-start",gap:0}}>
-        {steps.length===0&&(
-          <div style={{margin:"auto",textAlign:"center",color:"#334155"}}>
-            <div style={{fontSize:"32px",marginBottom:12}}>▶</div>
-            <div style={{fontSize:"14px",fontWeight:600,color:"#475569",marginBottom:6}}>Sin pasos definidos</div>
-            <div style={{fontSize:"12px",color:"#334155",marginBottom:20}}>Añade los pasos del proceso para visualizar el flujo</div>
-            <button onClick={addStep} style={{background:"#1d4ed8",border:"none",color:"#fff",padding:"10px 24px",borderRadius:4,cursor:"pointer",fontSize:"12px",fontWeight:600,fontFamily:"inherit"}}>+ Añadir primer paso</button>
-          </div>
-        )}
+      {/* Main flow scroll area */}
+      <div ref={scrollRef} style={{flex:1,overflow:"auto",padding:"32px 32px 24px"}}>
+        {/* Horizontal top rail: cards + bridges between them */}
+        <div style={{display:"flex",alignItems:"flex-start",gap:0,minWidth:"max-content"}}>
+          {component.map((c,ci)=>{
+            const col=cols.find(x=>x.id===c.colId);
+            const row=D.rows.find(r=>r.id===c.rowId);
+            const nextCard=component[ci+1];
+            const bridgeKey=nextCard&&hasEdge(c,nextCard)?getBridgeKey(c,nextCard):null;
+            const bridgeSteps=bridgeKey?getBridgeSteps(bridgeKey):[];
+            const cardSteps=c.steps||[];
+            const cardBlocked=cardSteps.some(s=>s.status==="bloqueado");
+            const cardDone=cardSteps.length>0&&cardSteps.every(s=>s.status==="completado");
 
-        {steps.map((step,si)=>{
-          const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
-          const owner=D.owners.find(o=>o.id===step.ownerId)||D.owners[0];
-          const tags=D.tags.filter(t=>step.tagIds.includes(t.id));
-          const isEditing=editingStep===step.id;
-          const isBlocked=step.status==="bloqueado";
-          const isLast=si===steps.length-1;
-
-          return(
-            <div key={step.id} style={{display:"flex",alignItems:"flex-start",gap:0,flexShrink:0}}>
-              {/* Step card */}
-              <div className="step-card"
-                style={{
-                  width:220,
-                  background:isBlocked?"#1a0606":isEditing?"#0f1e30":"#1c2d42",
-                  border:`2px solid ${isBlocked?"#dc2626":isEditing?"#3b82f6":st.color}`,
-                  borderRadius:8,
-                  overflow:"hidden",
-                  boxShadow:isBlocked?"0 0 20px #dc262633":isEditing?"0 0 16px #3b82f622":"none",
-                }}>
-                {/* Status bar top */}
-                <div style={{height:4,background:st.color,width:"100%"}}/>
-
-                <div style={{padding:"14px"}}>
-                  {/* Step number + status toggle */}
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                    <span style={{fontSize:"9px",letterSpacing:"2px",color:"#334155",fontWeight:600}}>PASO {si+1}</span>
-                    <button onClick={()=>updateStep(step.id,"status",nextStatus(step.status))}
-                      title="Clic para cambiar estado"
-                      style={{background:st.bg,border:`1px solid ${st.color}`,color:st.color,cursor:"pointer",padding:"3px 8px",borderRadius:10,fontSize:"9px",fontWeight:700,fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}>
-                      {st.icon} {st.label}
-                    </button>
+            return(
+              <div key={c.id} style={{display:"flex",alignItems:"flex-start",gap:0,flexShrink:0}}>
+                {/* Card node column */}
+                <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:200}}>
+                  {/* Matrix card box */}
+                  <div style={{
+                    width:"100%",background:cardBlocked?"#1a0606":cardDone?"#071f12":"#1c2d42",
+                    border:`2px solid ${cardBlocked?"#dc2626":cardDone?"#22c55e":col?.color||"#334155"}`,
+                    borderRadius:8,padding:"12px",
+                    boxShadow:cardBlocked?"0 0 16px #dc262630":c.id===card.id?"0 0 16px #3b82f630":"none",
+                    outline:c.id===card.id?"2px solid #1d4ed8":"none",
+                    outlineOffset:2,
+                  }}>
+                    <div style={{fontSize:"8px",letterSpacing:"2px",color:col?.hl||"#60a5fa",marginBottom:4,fontWeight:600}}>{row?.name}</div>
+                    <div style={{fontSize:"13px",fontWeight:800,color:"#f1f5f9",lineHeight:1.3,marginBottom:6}}>{c.name}</div>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <span style={{fontSize:"9px",padding:"2px 7px",borderRadius:10,background:col?.color||"#1e293b",color:col?.hl||"#60a5fa",fontWeight:600}}>{col?.label}</span>
+                      {cardSteps.length>0&&(
+                        <span style={{fontSize:"9px",color:cardDone?"#22c55e":cardBlocked?"#ef4444":"#475569",fontWeight:600}}>
+                          {cardSteps.filter(s=>s.status==="completado").length}/{cardSteps.length}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Name */}
-                  {isEditing
-                    ?<input value={step.name} onChange={e=>updateStep(step.id,"name",e.target.value)}
-                        style={{...INP,fontSize:"13px",fontWeight:700,marginBottom:8}}/>
-                    :<div onClick={()=>setEditingStep(step.id)} style={{fontSize:"13px",fontWeight:700,color:"#f1f5f9",lineHeight:1.3,marginBottom:8,cursor:"text",minHeight:40}}>{step.name}</div>
-                  }
+                  {/* Vertical connector to steps */}
+                  {cardSteps.length>0&&(
+                    <div style={{width:2,height:16,background:"#1e3a5f",flexShrink:0}}/>
+                  )}
 
-                  {/* Desc */}
-                  {isEditing
-                    ?<textarea value={step.desc||""} onChange={e=>updateStep(step.id,"desc",e.target.value)}
-                        rows={2} placeholder="Descripción del paso…"
-                        style={{...INP,fontSize:"11px",resize:"none",marginBottom:8,lineHeight:1.5}}/>
-                    :step.desc&&<div onClick={()=>setEditingStep(step.id)} style={{fontSize:"11px",color:"#64748b",lineHeight:1.5,marginBottom:8,cursor:"text"}}>{step.desc}</div>
-                  }
-
-                  {/* Owner */}
-                  {isEditing
-                    ?<select value={step.ownerId||""} onChange={e=>updateStep(step.id,"ownerId",e.target.value)}
-                        style={{...INP,fontSize:"10px",padding:"4px 6px",marginBottom:8,color:owner.color}}>
-                        {D.owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
-                      </select>
-                    :<div style={{fontSize:"10px",color:owner.color,fontWeight:600,marginBottom:8,display:"flex",alignItems:"center",gap:5}}>
-                        <div style={{width:6,height:6,borderRadius:"50%",background:owner.color,flexShrink:0}}/>
-                        {owner.name}
-                      </div>
-                  }
-
-                  {/* Tags */}
-                  {isEditing&&(
-                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
-                      {D.tags.map(t=>{
-                        const sel=step.tagIds.includes(t.id);
-                        return<button key={t.id} onClick={()=>updateStep(step.id,"tagIds",sel?step.tagIds.filter(x=>x!==t.id):[...step.tagIds,t.id])}
-                          style={{fontSize:"8px",padding:"2px 7px",borderRadius:10,border:`1px solid ${t.color}`,background:sel?t.color:"transparent",color:sel?"#fff":t.color,cursor:"pointer",fontFamily:"inherit"}}>
-                          {t.name}
-                        </button>;
+                  {/* Steps hanging below card */}
+                  {cardSteps.length>0&&(
+                    <div style={{width:"100%",display:"flex",flexDirection:"column",gap:0,alignItems:"center"}}>
+                      {cardSteps.map((step,si)=>{
+                        const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
+                        const isEd=editingStep?.nodeId===c.id&&editingStep?.stepId===step.id;
+                        return(
+                          <div key={step.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
+                            <StepCard step={step} st={st} isEditing={isEd} D={D}
+                              onStatusClick={()=>updateCardStep(c.id,step.id,"status",nextStatus(step.status))}
+                              onEditToggle={()=>setEditingStep(isEd?null:{nodeId:c.id,stepId:step.id})}
+                              onChange={(k,v)=>updateCardStep(c.id,step.id,k,v)}
+                              onDelete={()=>{if(window.confirm("¿Eliminar?"))deleteCardStep(c.id,step.id);}}/>
+                            {si<cardSteps.length-1&&<div style={{width:2,height:8,background:"#1e3a5f"}}/>}
+                          </div>
+                        );
                       })}
                     </div>
                   )}
-                  {!isEditing&&tags.length>0&&(
-                    <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:6}}>
-                      {tags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"1px 6px",borderRadius:10,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
+
+                  {/* Add step to card */}
+                  <button onClick={()=>addCardStep(c.id)}
+                    style={{marginTop:8,background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"4px 0",borderRadius:4,fontSize:"9px",width:"100%",fontFamily:"inherit",transition:"all .15s"}}
+                    onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
+                    onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
+                    + paso
+                  </button>
+                </div>
+
+                {/* Bridge between this card and next */}
+                {nextCard&&(
+                  <div style={{display:"flex",alignItems:"flex-start",gap:0,flexShrink:0}}>
+                    {/* Arrow out */}
+                    <div style={{display:"flex",alignItems:"center",height:52,marginTop:0,flexShrink:0}}>
+                      <div style={{width:16,height:2,background:"#1e3a5f"}}/>
+                      {!hasEdge(c,nextCard)&&<div style={{width:8,height:2,background:"#253347",borderTop:"1px dashed #253347"}}/>}
                     </div>
-                  )}
 
-                  {/* Actions */}
-                  <div style={{display:"flex",justifyContent:"space-between",marginTop:8,gap:6}}>
-                    <button onClick={()=>setEditingStep(isEditing?null:step.id)}
-                      style={{flex:1,background:"none",border:"1px solid #1e3a5f",color:isEditing?"#3b82f6":"#334155",cursor:"pointer",padding:"4px",borderRadius:3,fontSize:"9px",fontFamily:"inherit"}}>
-                      {isEditing?"✓ Listo":"✏ Editar"}
-                    </button>
-                    <button onClick={()=>{if(window.confirm("¿Eliminar este paso?"))deleteStep(step.id);}}
-                      style={{background:"none",border:"1px solid #1e2d40",color:"#3f1010",cursor:"pointer",padding:"4px 8px",borderRadius:3,fontSize:"11px"}}>🗑</button>
+                    {/* Bridge steps column */}
+                    {bridgeKey&&(
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:160,maxWidth:200}}>
+                        {bridgeSteps.length===0&&(
+                          <button onClick={()=>addBridgeStep(bridgeKey,c)}
+                            style={{background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"6px 12px",borderRadius:4,fontSize:"9px",fontFamily:"inherit",marginTop:14,whiteSpace:"nowrap",transition:"all .15s"}}
+                            onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
+                            onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
+                            + paso intermedio
+                          </button>
+                        )}
+                        {bridgeSteps.map((step,bi)=>{
+                          const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
+                          const isEd=editingStep?.bridgeKey===bridgeKey&&editingStep?.stepId===step.id;
+                          return(
+                            <div key={step.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
+                              {bi>0&&<div style={{width:2,height:8,background:"#1e3a5f"}}/>}
+                              <StepCard step={step} st={st} isEditing={isEd} D={D} isBridge
+                                onStatusClick={()=>updateBridgeStep(bridgeKey,step.id,"status",nextStatus(step.status))}
+                                onEditToggle={()=>setEditingStep(isEd?null:{bridgeKey,stepId:step.id})}
+                                onChange={(k,v)=>updateBridgeStep(bridgeKey,step.id,k,v)}
+                                onDelete={()=>{if(window.confirm("¿Eliminar paso intermedio?"))deleteBridgeStep(bridgeKey,step.id);}}/>
+                            </div>
+                          );
+                        })}
+                        {bridgeSteps.length>0&&(
+                          <button onClick={()=>addBridgeStep(bridgeKey,c)}
+                            style={{marginTop:6,background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"3px 0",borderRadius:4,fontSize:"9px",width:"100%",fontFamily:"inherit",transition:"all .15s"}}
+                            onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
+                            onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
+                            + paso
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Arrow in */}
+                    <div style={{display:"flex",alignItems:"center",height:52,marginTop:0,flexShrink:0}}>
+                      <div style={{width:12,height:2,background:"#1e3a5f"}}/>
+                      <div style={{width:0,height:0,borderTop:"5px solid transparent",borderBottom:"5px solid transparent",borderLeft:"8px solid #1e3a5f"}}/>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-
-              {/* Arrow between steps */}
-              {!isLast&&(
-                <div style={{display:"flex",alignItems:"center",height:60,marginTop:30,flexShrink:0,padding:"0 4px"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:0}}>
-                    <div style={{width:24,height:2,background:"#1e3a5f"}}/>
-                    <div style={{width:0,height:0,borderTop:"5px solid transparent",borderBottom:"5px solid transparent",borderLeft:"7px solid #1e3a5f"}}/>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Add step button */}
-        {steps.length>0&&(
-          <div style={{display:"flex",alignItems:"center",height:60,marginTop:30,flexShrink:0,paddingLeft:8}}>
-            <button onClick={addStep}
-              style={{background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"8px 16px",borderRadius:4,fontSize:"12px",fontFamily:"inherit",transition:"all .15s",whiteSpace:"nowrap"}}
-              onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
-              onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
-              + Paso
-            </button>
-          </div>
-        )}
+            );
+          })}
+        </div>
       </div>
 
-      {/* ── Bottom hint */}
-      <div style={{background:"#070d14",borderTop:"1px solid #1e2d40",padding:"8px 24px",flexShrink:0,display:"flex",gap:24,alignItems:"center"}}>
-        <span style={{fontSize:"9px",color:"#1e3a5f"}}>← → Navegar entre entradas · Clic en estado para cambiarlo · Clic en texto para editar · ESC para cerrar</span>
+      {/* Bottom legend */}
+      <div style={{background:"#070d14",borderTop:"1px solid #1e2d40",padding:"8px 24px",flexShrink:0,display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontSize:"9px",color:"#1e3a5f"}}>Clic en estado para cambiarlo · Clic en texto para editar · ESC cerrar</span>
         <div style={{flex:1}}/>
         {STEP_STATUS.map(s=>(
-          <span key={s.id} style={{fontSize:"9px",color:s.color,display:"flex",alignItems:"center",gap:4}}>
-            <span style={{width:8,height:8,borderRadius:"50%",background:s.color,display:"inline-block"}}/>
+          <span key={s.id} style={{fontSize:"9px",color:s.dot,display:"flex",alignItems:"center",gap:4}}>
+            <span style={{width:7,height:7,borderRadius:"50%",background:s.dot,display:"inline-block"}}/>
             {s.label}
           </span>
         ))}
+        <span style={{fontSize:"9px",color:"#253347",borderLeft:"1px solid #1e2d40",paddingLeft:12}}>□ Cajita matriz &nbsp;|&nbsp; ▣ Paso intermedio</span>
+      </div>
+    </div>
+  );
+}
+
+// StepCard — shared between card steps and bridge steps
+function StepCard({step,st,isEditing,D,isBridge,onStatusClick,onEditToggle,onChange,onDelete}){
+  const owner=D.owners.find(o=>o.id===step.ownerId)||D.owners[0];
+  const tags=D.tags.filter(t=>step.tagIds.includes(t.id));
+  return(
+    <div style={{
+      width:"100%",
+      background:step.status==="bloqueado"?"#1a0606":isBridge?"#111d30":"#162030",
+      border:`1.5px solid ${isEditing?"#3b82f6":step.status==="bloqueado"?"#dc2626":isBridge?"#1e3a5f":"#1e2d40"}`,
+      borderLeft:`3px solid ${st.color}`,
+      borderRadius:6,padding:"10px",
+      boxShadow:step.status==="bloqueado"?"0 0 12px #dc262625":isEditing?"0 0 10px #3b82f620":"none",
+    }}>
+      {/* Status toggle */}
+      <button onClick={onStatusClick}
+        style={{background:st.bg,border:`1px solid ${st.color}`,color:st.color,cursor:"pointer",padding:"2px 7px",borderRadius:10,fontSize:"8px",fontWeight:700,fontFamily:"inherit",marginBottom:7,display:"block"}}>
+        {st.label}
+      </button>
+      {/* Name */}
+      {isEditing
+        ?<input value={step.name} onChange={e=>onChange("name",e.target.value)} style={{...INP,fontSize:"11px",fontWeight:600,marginBottom:6,padding:"4px 6px"}}/>
+        :<div onClick={onEditToggle} style={{fontSize:"11px",fontWeight:600,color:"#e2e8f0",lineHeight:1.3,marginBottom:4,cursor:"text",minHeight:30}}>{step.name}</div>
+      }
+      {/* Desc */}
+      {isEditing
+        ?<textarea value={step.desc||""} onChange={e=>onChange("desc",e.target.value)} rows={2}
+            placeholder="Descripción…" style={{...INP,fontSize:"10px",resize:"none",marginBottom:6,lineHeight:1.4,padding:"4px 6px"}}/>
+        :step.desc&&<div onClick={onEditToggle} style={{fontSize:"10px",color:"#475569",lineHeight:1.4,marginBottom:5,cursor:"text"}}>{step.desc}</div>
+      }
+      {/* Owner */}
+      {isEditing
+        ?<select value={step.ownerId||""} onChange={e=>onChange("ownerId",e.target.value)}
+            style={{...INP,fontSize:"10px",padding:"3px 5px",marginBottom:6,color:owner.color}}>
+            {D.owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+        :<div style={{fontSize:"9px",color:owner.color,fontWeight:600,marginBottom:5,display:"flex",alignItems:"center",gap:4}}>
+            <div style={{width:5,height:5,borderRadius:"50%",background:owner.color,flexShrink:0}}/>
+            {owner.name}
+          </div>
+      }
+      {/* Tags */}
+      {isEditing&&(
+        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:6}}>
+          {D.tags.map(t=>{const sel=step.tagIds.includes(t.id);return(
+            <button key={t.id} onClick={()=>onChange("tagIds",sel?step.tagIds.filter(x=>x!==t.id):[...step.tagIds,t.id])}
+              style={{fontSize:"8px",padding:"1px 6px",borderRadius:10,border:`1px solid ${t.color}`,background:sel?t.color:"transparent",color:sel?"#fff":t.color,cursor:"pointer",fontFamily:"inherit"}}>{t.name}</button>
+          );})}
+        </div>
+      )}
+      {!isEditing&&tags.length>0&&(
+        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5}}>
+          {tags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"1px 5px",borderRadius:10,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
+        </div>
+      )}
+      {/* Actions */}
+      <div style={{display:"flex",gap:5,marginTop:6}}>
+        <button onClick={onEditToggle}
+          style={{flex:1,background:"none",border:"1px solid #1e3a5f",color:isEditing?"#3b82f6":"#334155",cursor:"pointer",padding:"3px",borderRadius:3,fontSize:"9px",fontFamily:"inherit"}}>
+          {isEditing?"✓ Listo":"✏"}
+        </button>
+        <button onClick={onDelete}
+          style={{background:"none",border:"1px solid #1e2d40",color:"#3f1010",cursor:"pointer",padding:"3px 7px",borderRadius:3,fontSize:"10px"}}>🗑</button>
       </div>
     </div>
   );
