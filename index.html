@@ -22,6 +22,10 @@ input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
 .chip:hover{transform:translateY(-1px)}
 .addrow:hover{border-color:#3b4f68!important;color:#64748b!important}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000}
+.process-modal{position:fixed;inset:0;background:#0a1020;z-index:500;display:flex;flex-direction:column;overflow:hidden}
+.step-card{transition:all .2s;cursor:pointer;flex-shrink:0}
+.step-card:hover{transform:translateY(-2px)}
+.step-edit input,.step-edit textarea,.step-edit select{font-family:inherit}
 </style>
 </head>
 <body><div id="root"></div>
@@ -150,7 +154,17 @@ function migrate(d){
   if(!d.config.passSegui) d.config.passSegui="seguimiento";
   if(!d.config.passEditor)d.config.passEditor="editor";
   d.tags  = d.tags.map(t=>({tipo:"interna",...t}));
-  d.cards = d.cards.map(c=>({publicado:false,completado:false,subtasks:[],deps:[],...c}));
+  d.cards = d.cards.map(c=>{
+    const base={publicado:false,completado:false,subtasks:[],deps:[],steps:[],...c};
+    // Migrate subtasks→steps if steps empty
+    if(base.steps.length===0&&base.subtasks.length>0){
+      base.steps=base.subtasks.map(s=>({
+        id:s.id,name:s.name,desc:"",ownerId:base.ownerId,tagIds:[],
+        status:s.done?"completado":"pendiente"
+      }));
+    }
+    return base;
+  });
   return d;
 }
 
@@ -227,6 +241,7 @@ function App(){
   const [diagResult,setDiagResult]=useState(null);
   const [diagRunning,setDiagRunning]=useState(false);
   const runDiag=async()=>{setDiagRunning(true);setDiagResult(null);const r=await testSupabase();setDiagResult(r);setDiagRunning(false);};
+  const [processCard,setProcessCard]=useState(null); // card open in process view
   const saveTimer=useRef(null);
   const cardRefs=useRef({});
   const scrollRef=useRef(null);
@@ -327,7 +342,7 @@ function App(){
         <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
           <div style={{marginRight:6}}>
             <div style={{fontSize:"8px",letterSpacing:"4px",color:lm.hl,marginBottom:1}}>RRHH · TRANSFORMACIÓN</div>
-            <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",letterSpacing:"0.3px"}}>Plan de Mejora</div>
+            <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",letterSpacing:"0.3px"}}>Plan de Mejora <span style={{fontSize:"10px",fontWeight:400,color:"#334155",letterSpacing:"1px"}}>v1.1</span></div>
           </div>
           {/* Layer badge */}
           <span style={{fontSize:"9px",letterSpacing:"1.5px",fontWeight:700,padding:"3px 10px",borderRadius:20,background:lm.color+"33",color:lm.hl,border:`1px solid ${lm.color}`}}>{lm.label.toUpperCase()}</span>
@@ -378,6 +393,7 @@ function App(){
             onAdd={openAdd}
             onEdit={c=>{if(layer===L.C){setEditing(c);setPanel("consulta-card");}else{setEditing({...c});setPanel("card");}}}
             onHl={id=>setHlId(id===hlId?null:id)}
+            onProcess={c=>setProcessCard({...c})}
             onRenameRow={renameRow} onDeleteRow={deleteRow} onMoveRow={moveRow} onAddRow={addRow}
             cardRefs={cardRefs}/>}
           {/* SVG arrows */}
@@ -406,10 +422,253 @@ function App(){
       {/* Login modal */}
       {loginOpen&&<LoginModal D={D} onLogin={role=>{setLayer(role);setLoginOpen(false);}} onClose={()=>setLoginOpen(false)}/>}
       {diagOpen&&<DiagModal running={diagRunning} result={diagResult} onRun={runDiag} onClose={()=>{setDiagOpen(false);setDiagResult(null);}}/>}
+      {processCard&&<ProcessModal
+        card={processCard} D={D} cols={cols()}
+        onClose={()=>setProcessCard(null)}
+        onSaveCard={c=>{mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});setProcessCard(c);}}
+        onNav={dir=>{
+          const all=D.cards;
+          const idx=all.findIndex(c=>c.id===processCard.id);
+          const next=all[idx+dir];
+          if(next)setProcessCard(next);
+        }}
+        canNavPrev={D.cards.findIndex(c=>c.id===processCard.id)>0}
+        canNavNext={D.cards.findIndex(c=>c.id===processCard.id)<D.cards.length-1}
+      />}
     </div>
   );
 }
 
+
+
+// ────────────────────────────────────────────────────────────────
+// PROCESS MODAL — full-screen horizontal flow view
+// ────────────────────────────────────────────────────────────────
+const STEP_STATUS=[
+  {id:"pendiente",  label:"Pendiente",   color:"#334155", bg:"#1e293b", icon:"⬜"},
+  {id:"en_curso",   label:"En curso",    color:"#1d4ed8", bg:"#0f2240", icon:"🔵"},
+  {id:"bloqueado",  label:"Bloqueado",   color:"#dc2626", bg:"#2d0a0a", icon:"🔴"},
+  {id:"completado", label:"Completado",  color:"#16a34a", bg:"#052e18", icon:"✅"},
+];
+const nextStatus=id=>{const i=STEP_STATUS.findIndex(s=>s.id===id);return STEP_STATUS[(i+1)%STEP_STATUS.length].id;};
+
+function ProcessModal({card,D,cols,onClose,onSaveCard,onNav,canNavPrev,canNavNext}){
+  const [localCard,setLocalCard]=useState({...card,steps:(card.steps||[]).map(s=>({...s}))});
+  const [editingStep,setEditingStep]=useState(null);
+  const col=cols.find(c=>c.id===localCard.colId);
+  const row=D.rows.find(r=>r.id===localCard.rowId);
+  const steps=localCard.steps||[];
+  const done=steps.filter(s=>s.status==="completado").length;
+  const blocked=steps.filter(s=>s.status==="bloqueado").length;
+  const pct=steps.length?Math.round((done/steps.length)*100):0;
+
+  // Sync when card prop changes (navigation)
+  useEffect(()=>{ setLocalCard({...card,steps:(card.steps||[]).map(s=>({...s}))}); setEditingStep(null); },[card.id]);
+
+  const updateStep=(id,k,v)=>{
+    const updated={...localCard,steps:localCard.steps.map(s=>s.id===id?{...s,[k]:v}:s)};
+    setLocalCard(updated);
+    onSaveCard(updated);
+  };
+  const addStep=()=>{
+    const ns={id:uid(),name:"Nuevo paso",desc:"",ownerId:localCard.ownerId||"o1",tagIds:[],status:"pendiente"};
+    const updated={...localCard,steps:[...localCard.steps,ns]};
+    setLocalCard(updated);
+    onSaveCard(updated);
+    setEditingStep(ns.id);
+  };
+  const deleteStep=id=>{
+    const updated={...localCard,steps:localCard.steps.filter(s=>s.id!==id)};
+    setLocalCard(updated);
+    onSaveCard(updated);
+    if(editingStep===id)setEditingStep(null);
+  };
+
+  // keyboard nav
+  useEffect(()=>{
+    const fn=e=>{
+      if(e.key==="Escape")onClose();
+      if(e.key==="ArrowLeft"&&canNavPrev)onNav(-1);
+      if(e.key==="ArrowRight"&&canNavNext)onNav(1);
+    };
+    window.addEventListener("keydown",fn);
+    return()=>window.removeEventListener("keydown",fn);
+  },[canNavPrev,canNavNext]);
+
+  return(
+    <div className="process-modal">
+      {/* ── Top bar */}
+      <div style={{background:"#070d14",borderBottom:`2px solid ${col?.color||"#1e3a5f"}`,padding:"12px 24px",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:16}}>
+          {/* Nav prev */}
+          <button onClick={()=>canNavPrev&&onNav(-1)} style={{background:"none",border:"1px solid #1e3a5f",color:canNavPrev?"#60a5fa":"#1e3a5f",cursor:canNavPrev?"pointer":"default",padding:"6px 12px",borderRadius:4,fontSize:"16px",lineHeight:1,flexShrink:0}}>‹</button>
+
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+              <span style={{fontSize:"9px",letterSpacing:"3px",color:col?.hl||"#60a5fa"}}>{row?.name} · {col?.label}</span>
+              {blocked>0&&<span style={{fontSize:"9px",fontWeight:700,color:"#ef4444",background:"#2d0a0a",padding:"2px 8px",borderRadius:10,border:"1px solid #7f1d1d"}}>⚠ {blocked} bloqueado{blocked>1?"s":""}</span>}
+            </div>
+            <div style={{fontSize:"20px",fontWeight:800,color:"#f1f5f9",lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{localCard.name}</div>
+          </div>
+
+          {/* Progress */}
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{fontSize:"22px",fontWeight:800,color:pct===100?"#22c55e":blocked>0?"#ef4444":"#60a5fa"}}>{pct}%</div>
+            <div style={{fontSize:"9px",color:"#334155"}}>{done}/{steps.length} completados</div>
+            <div style={{width:80,height:4,background:"#1e293b",borderRadius:2,marginTop:4}}>
+              <div style={{width:pct+"%",height:"100%",background:pct===100?"#22c55e":blocked>0?"#ef4444":"#3b82f6",borderRadius:2,transition:"width .3s"}}/>
+            </div>
+          </div>
+
+          {/* Nav next */}
+          <button onClick={()=>canNavNext&&onNav(1)} style={{background:"none",border:"1px solid #1e3a5f",color:canNavNext?"#60a5fa":"#1e3a5f",cursor:canNavNext?"pointer":"default",padding:"6px 12px",borderRadius:4,fontSize:"16px",lineHeight:1,flexShrink:0}}>›</button>
+
+          <button onClick={onClose} style={{background:"none",border:"1px solid #334155",color:"#64748b",cursor:"pointer",padding:"6px 12px",borderRadius:4,fontSize:"16px",lineHeight:1,flexShrink:0}}>✕</button>
+        </div>
+      </div>
+
+      {/* ── Steps horizontal scroll */}
+      <div style={{flex:1,overflow:"auto",padding:"32px 24px",display:"flex",alignItems:"flex-start",gap:0}}>
+        {steps.length===0&&(
+          <div style={{margin:"auto",textAlign:"center",color:"#334155"}}>
+            <div style={{fontSize:"32px",marginBottom:12}}>▶</div>
+            <div style={{fontSize:"14px",fontWeight:600,color:"#475569",marginBottom:6}}>Sin pasos definidos</div>
+            <div style={{fontSize:"12px",color:"#334155",marginBottom:20}}>Añade los pasos del proceso para visualizar el flujo</div>
+            <button onClick={addStep} style={{background:"#1d4ed8",border:"none",color:"#fff",padding:"10px 24px",borderRadius:4,cursor:"pointer",fontSize:"12px",fontWeight:600,fontFamily:"inherit"}}>+ Añadir primer paso</button>
+          </div>
+        )}
+
+        {steps.map((step,si)=>{
+          const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
+          const owner=D.owners.find(o=>o.id===step.ownerId)||D.owners[0];
+          const tags=D.tags.filter(t=>step.tagIds.includes(t.id));
+          const isEditing=editingStep===step.id;
+          const isBlocked=step.status==="bloqueado";
+          const isLast=si===steps.length-1;
+
+          return(
+            <div key={step.id} style={{display:"flex",alignItems:"flex-start",gap:0,flexShrink:0}}>
+              {/* Step card */}
+              <div className="step-card"
+                style={{
+                  width:220,
+                  background:isBlocked?"#1a0606":isEditing?"#0f1e30":"#1c2d42",
+                  border:`2px solid ${isBlocked?"#dc2626":isEditing?"#3b82f6":st.color}`,
+                  borderRadius:8,
+                  overflow:"hidden",
+                  boxShadow:isBlocked?"0 0 20px #dc262633":isEditing?"0 0 16px #3b82f622":"none",
+                }}>
+                {/* Status bar top */}
+                <div style={{height:4,background:st.color,width:"100%"}}/>
+
+                <div style={{padding:"14px"}}>
+                  {/* Step number + status toggle */}
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                    <span style={{fontSize:"9px",letterSpacing:"2px",color:"#334155",fontWeight:600}}>PASO {si+1}</span>
+                    <button onClick={()=>updateStep(step.id,"status",nextStatus(step.status))}
+                      title="Clic para cambiar estado"
+                      style={{background:st.bg,border:`1px solid ${st.color}`,color:st.color,cursor:"pointer",padding:"3px 8px",borderRadius:10,fontSize:"9px",fontWeight:700,fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}>
+                      {st.icon} {st.label}
+                    </button>
+                  </div>
+
+                  {/* Name */}
+                  {isEditing
+                    ?<input value={step.name} onChange={e=>updateStep(step.id,"name",e.target.value)}
+                        style={{...INP,fontSize:"13px",fontWeight:700,marginBottom:8}}/>
+                    :<div onClick={()=>setEditingStep(step.id)} style={{fontSize:"13px",fontWeight:700,color:"#f1f5f9",lineHeight:1.3,marginBottom:8,cursor:"text",minHeight:40}}>{step.name}</div>
+                  }
+
+                  {/* Desc */}
+                  {isEditing
+                    ?<textarea value={step.desc||""} onChange={e=>updateStep(step.id,"desc",e.target.value)}
+                        rows={2} placeholder="Descripción del paso…"
+                        style={{...INP,fontSize:"11px",resize:"none",marginBottom:8,lineHeight:1.5}}/>
+                    :step.desc&&<div onClick={()=>setEditingStep(step.id)} style={{fontSize:"11px",color:"#64748b",lineHeight:1.5,marginBottom:8,cursor:"text"}}>{step.desc}</div>
+                  }
+
+                  {/* Owner */}
+                  {isEditing
+                    ?<select value={step.ownerId||""} onChange={e=>updateStep(step.id,"ownerId",e.target.value)}
+                        style={{...INP,fontSize:"10px",padding:"4px 6px",marginBottom:8,color:owner.color}}>
+                        {D.owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+                      </select>
+                    :<div style={{fontSize:"10px",color:owner.color,fontWeight:600,marginBottom:8,display:"flex",alignItems:"center",gap:5}}>
+                        <div style={{width:6,height:6,borderRadius:"50%",background:owner.color,flexShrink:0}}/>
+                        {owner.name}
+                      </div>
+                  }
+
+                  {/* Tags */}
+                  {isEditing&&(
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+                      {D.tags.map(t=>{
+                        const sel=step.tagIds.includes(t.id);
+                        return<button key={t.id} onClick={()=>updateStep(step.id,"tagIds",sel?step.tagIds.filter(x=>x!==t.id):[...step.tagIds,t.id])}
+                          style={{fontSize:"8px",padding:"2px 7px",borderRadius:10,border:`1px solid ${t.color}`,background:sel?t.color:"transparent",color:sel?"#fff":t.color,cursor:"pointer",fontFamily:"inherit"}}>
+                          {t.name}
+                        </button>;
+                      })}
+                    </div>
+                  )}
+                  {!isEditing&&tags.length>0&&(
+                    <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:6}}>
+                      {tags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"1px 6px",borderRadius:10,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:8,gap:6}}>
+                    <button onClick={()=>setEditingStep(isEditing?null:step.id)}
+                      style={{flex:1,background:"none",border:"1px solid #1e3a5f",color:isEditing?"#3b82f6":"#334155",cursor:"pointer",padding:"4px",borderRadius:3,fontSize:"9px",fontFamily:"inherit"}}>
+                      {isEditing?"✓ Listo":"✏ Editar"}
+                    </button>
+                    <button onClick={()=>{if(window.confirm("¿Eliminar este paso?"))deleteStep(step.id);}}
+                      style={{background:"none",border:"1px solid #1e2d40",color:"#3f1010",cursor:"pointer",padding:"4px 8px",borderRadius:3,fontSize:"11px"}}>🗑</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Arrow between steps */}
+              {!isLast&&(
+                <div style={{display:"flex",alignItems:"center",height:60,marginTop:30,flexShrink:0,padding:"0 4px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:0}}>
+                    <div style={{width:24,height:2,background:"#1e3a5f"}}/>
+                    <div style={{width:0,height:0,borderTop:"5px solid transparent",borderBottom:"5px solid transparent",borderLeft:"7px solid #1e3a5f"}}/>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Add step button */}
+        {steps.length>0&&(
+          <div style={{display:"flex",alignItems:"center",height:60,marginTop:30,flexShrink:0,paddingLeft:8}}>
+            <button onClick={addStep}
+              style={{background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"8px 16px",borderRadius:4,fontSize:"12px",fontFamily:"inherit",transition:"all .15s",whiteSpace:"nowrap"}}
+              onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
+              onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
+              + Paso
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Bottom hint */}
+      <div style={{background:"#070d14",borderTop:"1px solid #1e2d40",padding:"8px 24px",flexShrink:0,display:"flex",gap:24,alignItems:"center"}}>
+        <span style={{fontSize:"9px",color:"#1e3a5f"}}>← → Navegar entre entradas · Clic en estado para cambiarlo · Clic en texto para editar · ESC para cerrar</span>
+        <div style={{flex:1}}/>
+        {STEP_STATUS.map(s=>(
+          <span key={s.id} style={{fontSize:"9px",color:s.color,display:"flex",alignItems:"center",gap:4}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:s.color,display:"inline-block"}}/>
+            {s.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ────────────────────────────────────────────────────────────────
 // DIAGNOSTIC MODAL
@@ -516,7 +775,7 @@ function LoginModal({D,onLogin,onClose}){
 // ────────────────────────────────────────────────────────────────
 // MATRIX
 // ────────────────────────────────────────────────────────────────
-function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl,onRenameRow,onDeleteRow,onMoveRow,onAddRow,cardRefs}){
+function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl,onProcess,onRenameRow,onDeleteRow,onMoveRow,onAddRow,cardRefs}){
   const isPublic=layer===L.C;
   const canEdit=layer===L.E;
   const gc=`${LW}px repeat(${cols.length}, minmax(${CW}px,1fr))`;
@@ -562,7 +821,7 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
                   <CellGroup key={gi} group={grp} D={D} col={col} layer={layer}
                     isVisible={isVisible} hasFilter={hasFilter}
                     hlId={hlId} related={related}
-                    onEdit={onEdit} onHl={onHl} cardRefs={cardRefs}
+                    onEdit={onEdit} onHl={onHl} onProcess={onProcess} cardRefs={cardRefs}
                     isPublic={isPublic}/>
                 ))}
                 {canEdit&&(
@@ -588,7 +847,7 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
 // ────────────────────────────────────────────────────────────────
 // CELL GROUP — dashed frame for related cards, normal for singles
 // ────────────────────────────────────────────────────────────────
-function CellGroup({group,D,col,layer,isVisible,hasFilter,hlId,related,onEdit,onHl,cardRefs,isPublic}){
+function CellGroup({group,D,col,layer,isVisible,hasFilter,hlId,related,onEdit,onHl,onProcess,cardRefs,isPublic}){
   const chipProps=(card)=>({
     card,D,col,layer,
     visible:isVisible(card),hasFilter,
@@ -596,7 +855,7 @@ function CellGroup({group,D,col,layer,isVisible,hasFilter,hlId,related,onEdit,on
     dimmed:!isPublic&&!!hlId&&!related.has(card.id),
     onClick:()=>onEdit(card),
     onHl:e=>{e.stopPropagation();onHl(card.id);},
-    cardRefs,
+    onProcess,cardRefs,
   });
 
   if(!group.isGroup){
@@ -658,7 +917,7 @@ function RowLabel({row,idx,total,onRename,onDelete,onMove}){
 // ────────────────────────────────────────────────────────────────
 // CARD CHIP
 // ────────────────────────────────────────────────────────────────
-function CardChip({card,D,col,layer,visible,hasFilter,highlighted,dimmed,onClick,onHl,cardRefs}){
+function CardChip({card,D,col,layer,visible,hasFilter,highlighted,dimmed,onClick,onHl,onProcess,cardRefs}){
   const [open,setOpen]=useState(false);
   const isPublic=layer===L.C;
   const canEdit=layer===L.E;
@@ -694,6 +953,12 @@ function CardChip({card,D,col,layer,visible,hasFilter,highlighted,dimmed,onClick
       }}>
       <div style={{display:"flex",alignItems:"flex-start",gap:5}}>
         <div onClick={onClick} style={{flex:1,fontSize:"12px",fontWeight:600,color:highlighted?"#f1f5f9":"#cbd5e1",lineHeight:1.4}}>{card.name}</div>
+        {/* Process view button */}
+        {!isPublic&&<button onClick={e=>{e.stopPropagation();if(typeof onProcess==="function")onProcess(card);}} title="Ver flujo de proceso"
+          style={{background:"none",border:"1px solid #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"1px 5px",borderRadius:3,fontSize:"10px",lineHeight:1.4,flexShrink:0,fontWeight:700,transition:"all .15s"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor="#3b82f6";e.currentTarget.style.color="#3b82f6";}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e3a5f";e.currentTarget.style.color="#1e3a5f";}}
+        >▶</button>}
         {/* Published badge */}
         {canEdit&&(
           <span style={{fontSize:"8px",padding:"1px 5px",borderRadius:3,background:card.publicado?"#052e18":"#1a2535",color:card.publicado?"#34d399":"#334155",border:`1px solid ${card.publicado?"#166534":"#253347"}`,flexShrink:0,fontWeight:700}}>
