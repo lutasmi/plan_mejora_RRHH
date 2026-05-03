@@ -437,7 +437,7 @@ function App(){
 
 
 // ────────────────────────────────────────────────────────────────
-// PROCESS MODAL — full connected-component flow view
+// PROCESS MODAL — DAG level-based flow view
 // ────────────────────────────────────────────────────────────────
 const STEP_STATUS=[
   {id:"pendiente", label:"Pendiente",  color:"#475569", bg:"#1e293b", dot:"#475569"},
@@ -448,39 +448,48 @@ const STEP_STATUS=[
 const nextStatus=id=>{const i=STEP_STATUS.findIndex(s=>s.id===id);return STEP_STATUS[(i+1)%STEP_STATUS.length].id;};
 const uid2=()=>Math.random().toString(36).slice(2,9);
 
-// Get connected component of a card (all cards reachable via deps in either direction)
-function getConnectedComponent(startCard, allCards){
+function getConnectedComponent(startCard,allCards){
   const adj={};
-  for(const c of allCards){adj[c.id]=new Set();}
-  for(const c of allCards) for(const d of(c.deps||[])) if(adj[d]){adj[c.id].add(d);adj[d].add(c.id);}
-  const vis=new Set(), q=[startCard.id];
+  for(const c of allCards)adj[c.id]=new Set();
+  for(const c of allCards)for(const d of(c.deps||[]))if(adj[d]){adj[c.id].add(d);adj[d].add(c.id);}
+  const vis=new Set(),q=[startCard.id];
   while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);(adj[id]||new Set()).forEach(n=>q.push(n));}
   return allCards.filter(c=>vis.has(c.id));
 }
 
-// Topological sort within component
-function topoSortComp(cards){
+// Assign each card a level = longest path from any root within component
+function computeLevels(cards){
   const ids=new Set(cards.map(c=>c.id));
-  const inDeg={},adj={};
-  for(const c of cards){inDeg[c.id]=0;adj[c.id]=[];}
-  for(const c of cards) for(const d of(c.deps||[])) if(ids.has(d)){adj[d].push(c.id);inDeg[c.id]++;}
-  const q=cards.filter(c=>inDeg[c.id]===0).map(c=>c.id);
-  const out=[];const vis=new Set();
-  while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);out.push(id);for(const n of adj[id])if(!vis.has(n)&&--inDeg[n]===0)q.push(n);}
-  cards.forEach(c=>{if(!vis.has(c.id))out.push(c.id);});
-  return out.map(id=>cards.find(c=>c.id===id)).filter(Boolean);
+  const lvl={};
+  cards.forEach(c=>lvl[c.id]=0);
+  let changed=true;
+  while(changed){
+    changed=false;
+    for(const c of cards)
+      for(const d of(c.deps||[]))
+        if(ids.has(d)&&lvl[d]>=lvl[c.id]){lvl[c.id]=lvl[d]+1;changed=true;}
+  }
+  return lvl;
+}
+
+// Group cards by level, sort within level by name for stability
+function groupByLevel(cards){
+  const lvl=computeLevels(cards);
+  const maxL=Math.max(...Object.values(lvl));
+  const cols=[];
+  for(let i=0;i<=maxL;i++)
+    cols.push(cards.filter(c=>lvl[c.id]===i).sort((a,b)=>a.name.localeCompare(b.name)));
+  return cols;
 }
 
 function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
   const [bridges,setBridges]=useState(()=>JSON.parse(JSON.stringify(D.bridges||{})));
-  const [editingStep,setEditingStep]=useState(null); // {nodeId, stepId} or {bridgeKey, stepId}
-  const scrollRef=useRef(null);
+  const [editingStep,setEditingStep]=useState(null);
 
-  // Get the full connected component sorted
-  const component=topoSortComp(getConnectedComponent(card, D.cards));
+  const component=getConnectedComponent(card,D.cards);
   const isSingle=component.length===1;
+  const colGroups=groupByLevel(component); // array of arrays
 
-  // Count stats across whole flow
   const allSteps=[
     ...component.flatMap(c=>(c.steps||[])),
     ...Object.values(bridges).flat()
@@ -489,57 +498,45 @@ function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
   const blocked=allSteps.filter(s=>s.status==="bloqueado").length;
   const pct=allSteps.length?Math.round((done/allSteps.length)*100):0;
 
-  // Save bridges to parent
-  const saveBridges=(nb)=>{setBridges(nb);onSaveBridges(nb);};
+  const saveBridges=nb=>{setBridges(nb);onSaveBridges(nb);};
 
   const updateCardStep=(cardId,stepId,k,v)=>{
-    const c=D.cards.find(x=>x.id===cardId);
-    if(!c)return;
-    const updated={...c,steps:(c.steps||[]).map(s=>s.id===stepId?{...s,[k]:v}:s)};
-    onSaveCard(updated);
+    const c=D.cards.find(x=>x.id===cardId);if(!c)return;
+    onSaveCard({...c,steps:(c.steps||[]).map(s=>s.id===stepId?{...s,[k]:v}:s)});
   };
-  const addCardStep=(cardId)=>{
-    const c=D.cards.find(x=>x.id===cardId);
-    if(!c)return;
+  const addCardStep=cardId=>{
+    const c=D.cards.find(x=>x.id===cardId);if(!c)return;
     const ns={id:uid2(),name:"Nuevo paso",desc:"",ownerId:c.ownerId||"o1",tagIds:[],status:"pendiente"};
-    const updated={...c,steps:[...(c.steps||[]),ns]};
-    onSaveCard(updated);
+    onSaveCard({...c,steps:[...(c.steps||[]),ns]});
     setEditingStep({nodeId:cardId,stepId:ns.id});
   };
   const deleteCardStep=(cardId,stepId)=>{
-    const c=D.cards.find(x=>x.id===cardId);
-    if(!c)return;
+    const c=D.cards.find(x=>x.id===cardId);if(!c)return;
     onSaveCard({...c,steps:(c.steps||[]).filter(s=>s.id!==stepId)});
     if(editingStep?.stepId===stepId)setEditingStep(null);
   };
-
-  const getBridgeKey=(a,b)=>a.id+":"+b.id;
-  const getBridgeSteps=(key)=>bridges[key]||[];
-  const updateBridgeStep=(key,stepId,k,v)=>{
-    const nb={...bridges,[key]:(bridges[key]||[]).map(s=>s.id===stepId?{...s,[k]:v}:s)};
-    saveBridges(nb);
-  };
-  const addBridgeStep=(key,cardA)=>{
-    const ns={id:uid2(),name:"Paso intermedio",desc:"",ownerId:cardA.ownerId||"o1",tagIds:[],status:"pendiente"};
-    const nb={...bridges,[key]:[...(bridges[key]||[]),ns]};
-    saveBridges(nb);
+  const getBKey=(a,b)=>a.id+":"+b.id;
+  const updateBStep=(key,stepId,k,v)=>saveBridges({...bridges,[key]:(bridges[key]||[]).map(s=>s.id===stepId?{...s,[k]:v}:s)});
+  const addBStep=(key,refCard)=>{
+    const ns={id:uid2(),name:"Paso intermedio",desc:"",ownerId:refCard.ownerId||"o1",tagIds:[],status:"pendiente"};
+    saveBridges({...bridges,[key]:[...(bridges[key]||[]),ns]});
     setEditingStep({bridgeKey:key,stepId:ns.id});
   };
-  const deleteBridgeStep=(key,stepId)=>{
-    const nb={...bridges,[key]:(bridges[key]||[]).filter(s=>s.id!==stepId)};
-    saveBridges(nb);
+  const deleteBStep=(key,stepId)=>{
+    saveBridges({...bridges,[key]:(bridges[key]||[]).filter(s=>s.id!==stepId)});
     if(editingStep?.stepId===stepId)setEditingStep(null);
   };
 
-  // keyboard
+  // Get direct predecessors of a card within component
+  const compIds=new Set(component.map(c=>c.id));
+  const predecessors=c=>component.filter(x=>(c.deps||[]).includes(x.id));
+  const successors=c=>component.filter(x=>(x.deps||[]).includes(c.id));
+
   useEffect(()=>{
     const fn=e=>{if(e.key==="Escape")onClose();};
     window.addEventListener("keydown",fn);
     return()=>window.removeEventListener("keydown",fn);
   },[]);
-
-  // Has dep edge between two cards?
-  const hasEdge=(a,b)=>(b.deps||[]).includes(a.id);
 
   return(
     <div className="process-modal">
@@ -547,10 +544,8 @@ function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
       <div style={{background:"#070d14",borderBottom:"2px solid #1e3a5f",padding:"12px 24px",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:"9px",letterSpacing:"3px",color:"#3b82f6",marginBottom:4}}>VISTA DE PROCESO · {component.length} ENTRADA{component.length>1?"S":""}</div>
-            <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-              {isSingle?card.name:component.map(c=>c.name).join(" → ")}
-            </div>
+            <div style={{fontSize:"9px",letterSpacing:"3px",color:"#3b82f6",marginBottom:3}}>FLUJO DE PROCESO · {component.length} ENTRADA{component.length>1?"S":""}</div>
+            <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{card.name}</div>
           </div>
           {allSteps.length>0&&(
             <div style={{flexShrink:0,textAlign:"right"}}>
@@ -566,131 +561,108 @@ function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
         </div>
       </div>
 
-      {/* Main flow scroll area */}
-      <div ref={scrollRef} style={{flex:1,overflow:"auto",padding:"32px 32px 24px"}}>
-        {/* Horizontal top rail: cards + bridges between them */}
+      {/* Main flow — horizontal columns */}
+      <div style={{flex:1,overflow:"auto",padding:"28px 32px 24px"}}>
         <div style={{display:"flex",alignItems:"flex-start",gap:0,minWidth:"max-content"}}>
-          {component.map((c,ci)=>{
-            const col=cols.find(x=>x.id===c.colId);
-            const row=D.rows.find(r=>r.id===c.rowId);
-            const nextCard=component[ci+1];
-            const bridgeKey=nextCard&&hasEdge(c,nextCard)?getBridgeKey(c,nextCard):null;
-            const bridgeSteps=bridgeKey?getBridgeSteps(bridgeKey):[];
-            const cardSteps=c.steps||[];
-            const cardBlocked=cardSteps.some(s=>s.status==="bloqueado");
-            const cardDone=cardSteps.length>0&&cardSteps.every(s=>s.status==="completado");
+          {colGroups.map((colCards,ci)=>{
+            const isLastCol=ci===colGroups.length-1;
+            const prevColCards=ci>0?colGroups[ci-1]:[];
+
+            // Collect all edges from prevCol → this col
+            const edgesIn=[]; // {from: card, to: card}
+            for(const tc of colCards)
+              for(const pc of prevColCards)
+                if((tc.deps||[]).includes(pc.id)) edgesIn.push({from:pc,to:tc});
 
             return(
-              <div key={c.id} style={{display:"flex",alignItems:"flex-start",gap:0,flexShrink:0}}>
-                {/* Card node column */}
-                <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:200}}>
-                  {/* Matrix card box */}
-                  <div style={{
-                    width:"100%",background:cardBlocked?"#1a0606":cardDone?"#071f12":"#1c2d42",
-                    border:`2px solid ${cardBlocked?"#dc2626":cardDone?"#22c55e":col?.color||"#334155"}`,
-                    borderRadius:8,padding:"12px",
-                    boxShadow:cardBlocked?"0 0 16px #dc262630":c.id===card.id?"0 0 16px #3b82f630":"none",
-                    outline:c.id===card.id?"2px solid #1d4ed8":"none",
-                    outlineOffset:2,
-                  }}>
-                    <div style={{fontSize:"8px",letterSpacing:"2px",color:col?.hl||"#60a5fa",marginBottom:4,fontWeight:600}}>{row?.name}</div>
-                    <div style={{fontSize:"13px",fontWeight:800,color:"#f1f5f9",lineHeight:1.3,marginBottom:6}}>{c.name}</div>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                      <span style={{fontSize:"9px",padding:"2px 7px",borderRadius:10,background:col?.color||"#1e293b",color:col?.hl||"#60a5fa",fontWeight:600}}>{col?.label}</span>
-                      {cardSteps.length>0&&(
-                        <span style={{fontSize:"9px",color:cardDone?"#22c55e":cardBlocked?"#ef4444":"#475569",fontWeight:600}}>
-                          {cardSteps.filter(s=>s.status==="completado").length}/{cardSteps.length}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+              <div key={ci} style={{display:"flex",alignItems:"flex-start",flexShrink:0}}>
 
-                  {/* Vertical connector to steps */}
-                  {cardSteps.length>0&&(
-                    <div style={{width:2,height:16,background:"#1e3a5f",flexShrink:0}}/>
-                  )}
-
-                  {/* Steps hanging below card */}
-                  {cardSteps.length>0&&(
-                    <div style={{width:"100%",display:"flex",flexDirection:"column",gap:0,alignItems:"center"}}>
-                      {cardSteps.map((step,si)=>{
-                        const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
-                        const isEd=editingStep?.nodeId===c.id&&editingStep?.stepId===step.id;
-                        return(
-                          <div key={step.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
-                            <StepCard step={step} st={st} isEditing={isEd} D={D}
-                              onStatusClick={()=>updateCardStep(c.id,step.id,"status",nextStatus(step.status))}
-                              onEditToggle={()=>setEditingStep(isEd?null:{nodeId:c.id,stepId:step.id})}
-                              onChange={(k,v)=>updateCardStep(c.id,step.id,k,v)}
-                              onDelete={()=>{if(window.confirm("¿Eliminar?"))deleteCardStep(c.id,step.id);}}/>
-                            {si<cardSteps.length-1&&<div style={{width:2,height:8,background:"#1e3a5f"}}/>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Add step to card */}
-                  <button onClick={()=>addCardStep(c.id)}
-                    style={{marginTop:8,background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"4px 0",borderRadius:4,fontSize:"9px",width:"100%",fontFamily:"inherit",transition:"all .15s"}}
-                    onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
-                    onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
-                    + paso
-                  </button>
-                </div>
-
-                {/* Bridge between this card and next */}
-                {nextCard&&(
-                  <div style={{display:"flex",alignItems:"flex-start",gap:0,flexShrink:0}}>
-                    {/* Arrow out */}
-                    <div style={{display:"flex",alignItems:"center",height:52,marginTop:0,flexShrink:0}}>
-                      <div style={{width:16,height:2,background:"#1e3a5f"}}/>
-                      {!hasEdge(c,nextCard)&&<div style={{width:8,height:2,background:"#253347",borderTop:"1px dashed #253347"}}/>}
-                    </div>
-
-                    {/* Bridge steps column */}
-                    {bridgeKey&&(
-                      <div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:160,maxWidth:200}}>
-                        {bridgeSteps.length===0&&(
-                          <button onClick={()=>addBridgeStep(bridgeKey,c)}
-                            style={{background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"6px 12px",borderRadius:4,fontSize:"9px",fontFamily:"inherit",marginTop:14,whiteSpace:"nowrap",transition:"all .15s"}}
-                            onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
-                            onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
-                            + paso intermedio
-                          </button>
-                        )}
-                        {bridgeSteps.map((step,bi)=>{
-                          const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
-                          const isEd=editingStep?.bridgeKey===bridgeKey&&editingStep?.stepId===step.id;
-                          return(
-                            <div key={step.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
-                              {bi>0&&<div style={{width:2,height:8,background:"#1e3a5f"}}/>}
-                              <StepCard step={step} st={st} isEditing={isEd} D={D} isBridge
-                                onStatusClick={()=>updateBridgeStep(bridgeKey,step.id,"status",nextStatus(step.status))}
-                                onEditToggle={()=>setEditingStep(isEd?null:{bridgeKey,stepId:step.id})}
-                                onChange={(k,v)=>updateBridgeStep(bridgeKey,step.id,k,v)}
-                                onDelete={()=>{if(window.confirm("¿Eliminar paso intermedio?"))deleteBridgeStep(bridgeKey,step.id);}}/>
-                            </div>
-                          );
-                        })}
-                        {bridgeSteps.length>0&&(
-                          <button onClick={()=>addBridgeStep(bridgeKey,c)}
-                            style={{marginTop:6,background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"3px 0",borderRadius:4,fontSize:"9px",width:"100%",fontFamily:"inherit",transition:"all .15s"}}
-                            onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
-                            onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
-                            + paso
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Arrow in */}
-                    <div style={{display:"flex",alignItems:"center",height:52,marginTop:0,flexShrink:0}}>
-                      <div style={{width:12,height:2,background:"#1e3a5f"}}/>
-                      <div style={{width:0,height:0,borderTop:"5px solid transparent",borderBottom:"5px solid transparent",borderLeft:"8px solid #1e3a5f"}}/>
-                    </div>
-                  </div>
+                {/* Bridge + arrow zone between ci-1 and ci */}
+                {ci>0&&(
+                  <BridgeZone
+                    edges={edgesIn} bridges={bridges} D={D}
+                    editingStep={editingStep}
+                    onAddStep={(key,refCard)=>addBStep(key,refCard)}
+                    onUpdateStep={(key,sid,k,v)=>updateBStep(key,sid,k,v)}
+                    onDeleteStep={(key,sid)=>deleteBStep(key,sid)}
+                    onEditToggle={e=>setEditingStep(editingStep?.stepId===e.stepId&&editingStep?.bridgeKey===e.bridgeKey?null:e)}
+                  />
                 )}
+
+                {/* Column of cards at this level */}
+                <div style={{display:"flex",flexDirection:"column",gap:16,flexShrink:0,width:210}}>
+                  {colCards.map(c=>{
+                    const col2=cols.find(x=>x.id===c.colId);
+                    const row=D.rows.find(r=>r.id===c.rowId);
+                    const cardSteps=c.steps||[];
+                    const cardBlocked=cardSteps.some(s=>s.status==="bloqueado");
+                    const cardDone=cardSteps.length>0&&cardSteps.every(s=>s.status==="completado");
+                    const preds=predecessors(c);
+                    const succs=successors(c);
+                    const isOrigin=c.id===card.id;
+
+                    return(
+                      <div key={c.id} style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+                        {/* Card box */}
+                        <div style={{
+                          width:"100%",
+                          background:cardBlocked?"#1a0606":cardDone?"#071f12":"#1c2d42",
+                          border:`2px solid ${cardBlocked?"#dc2626":cardDone?"#22c55e":isOrigin?"#3b82f6":col2?.color||"#334155"}`,
+                          borderRadius:8,padding:"12px",
+                          boxShadow:isOrigin?"0 0 16px #3b82f630":cardBlocked?"0 0 16px #dc262625":"none",
+                        }}>
+                          <div style={{fontSize:"8px",letterSpacing:"1.5px",color:col2?.hl||"#60a5fa",marginBottom:3,fontWeight:600}}>{row?.name}</div>
+                          <div style={{fontSize:"13px",fontWeight:800,color:"#f1f5f9",lineHeight:1.3,marginBottom:7}}>{c.name}</div>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
+                            <span style={{fontSize:"9px",padding:"2px 7px",borderRadius:10,background:col2?.color||"#1e293b",color:col2?.hl||"#60a5fa",fontWeight:600}}>{col2?.label}</span>
+                            {cardSteps.length>0&&<span style={{fontSize:"9px",color:cardDone?"#22c55e":cardBlocked?"#ef4444":"#475569",fontWeight:600}}>{cardSteps.filter(s=>s.status==="completado").length}/{cardSteps.length}</span>}
+                          </div>
+                          {/* Predecessor labels when branching */}
+                          {preds.length>1&&(
+                            <div style={{marginTop:7,paddingTop:5,borderTop:"1px solid #1e3a5f"}}>
+                              <div style={{fontSize:"8px",color:"#334155",marginBottom:3}}>Depende de:</div>
+                              {preds.map(p=><div key={p.id} style={{fontSize:"8px",color:"#475569",display:"flex",alignItems:"center",gap:4}}><span style={{color:"#1e3a5f"}}>←</span>{p.name}</div>)}
+                            </div>
+                          )}
+                          {/* Successor labels when this card fans out */}
+                          {succs.length>1&&(
+                            <div style={{marginTop:5}}>
+                              <div style={{fontSize:"8px",color:"#334155",marginBottom:2}}>Continúa en:</div>
+                              {succs.map(s=><div key={s.id} style={{fontSize:"8px",color:"#475569",display:"flex",alignItems:"center",gap:4}}><span style={{color:"#1e3a5f"}}>→</span>{s.name}</div>)}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Steps below card */}
+                        {cardSteps.length>0&&<div style={{width:2,height:14,background:"#1e3a5f",flexShrink:0}}/>}
+                        {cardSteps.length>0&&(
+                          <div style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
+                            {cardSteps.map((step,si)=>{
+                              const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
+                              const isEd=editingStep?.nodeId===c.id&&editingStep?.stepId===step.id;
+                              return(
+                                <div key={step.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
+                                  <StepCard step={step} st={st} isEditing={isEd} D={D}
+                                    onStatusClick={()=>updateCardStep(c.id,step.id,"status",nextStatus(step.status))}
+                                    onEditToggle={()=>setEditingStep(isEd?null:{nodeId:c.id,stepId:step.id})}
+                                    onChange={(k,v)=>updateCardStep(c.id,step.id,k,v)}
+                                    onDelete={()=>{if(window.confirm("¿Eliminar?"))deleteCardStep(c.id,step.id);}}/>
+                                  {si<cardSteps.length-1&&<div style={{width:2,height:8,background:"#1e3a5f"}}/>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <button onClick={()=>addCardStep(c.id)}
+                          style={{marginTop:8,background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"4px 0",borderRadius:4,fontSize:"9px",width:"100%",fontFamily:"inherit",transition:"all .15s"}}
+                          onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
+                          onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
+                          + paso
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             );
           })}
@@ -707,13 +679,74 @@ function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
             {s.label}
           </span>
         ))}
-        <span style={{fontSize:"9px",color:"#253347",borderLeft:"1px solid #1e2d40",paddingLeft:12}}>□ Cajita matriz &nbsp;|&nbsp; ▣ Paso intermedio</span>
       </div>
     </div>
   );
 }
 
-// StepCard — shared between card steps and bridge steps
+// BridgeZone — connector + intermediate steps between two level-columns
+function BridgeZone({edges,bridges,D,editingStep,onAddStep,onUpdateStep,onDeleteStep,onEditToggle}){
+  if(!edges.length)return(
+    <div style={{display:"flex",alignItems:"center",height:60,flexShrink:0}}>
+      <div style={{width:20,height:2,background:"#1e3a5f"}}/>
+      <div style={{width:0,height:0,borderTop:"5px solid transparent",borderBottom:"5px solid transparent",borderLeft:"8px solid #1e3a5f"}}/>
+    </div>
+  );
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",justifyContent:"center",gap:12,padding:"0 8px",flexShrink:0,minWidth:140,maxWidth:180}}>
+      {edges.map(({from,to})=>{
+        const key=from.id+":"+to.id;
+        const bSteps=bridges[key]||[];
+        return(
+          <div key={key} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:0}}>
+            {/* Edge label */}
+            <div style={{fontSize:"8px",color:"#253347",marginBottom:4,textAlign:"center",lineHeight:1.3}}>
+              <span style={{color:"#334155"}}>{from.name.length>16?from.name.slice(0,14)+"…":from.name}</span>
+              <span style={{color:"#1e3a5f"}}> → </span>
+              <span style={{color:"#334155"}}>{to.name.length>16?to.name.slice(0,14)+"…":to.name}</span>
+            </div>
+            {/* Arrow line */}
+            <div style={{display:"flex",alignItems:"center",width:"100%",marginBottom:bSteps.length?6:0}}>
+              <div style={{flex:1,height:2,background:"#1e3a5f"}}/>
+              {!bSteps.length&&<div style={{width:0,height:0,borderTop:"4px solid transparent",borderBottom:"4px solid transparent",borderLeft:"6px solid #1e3a5f"}}/>}
+            </div>
+            {/* Bridge steps */}
+            {bSteps.map((step,bi)=>{
+              const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
+              const isEd=editingStep?.bridgeKey===key&&editingStep?.stepId===step.id;
+              return(
+                <div key={step.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
+                  {bi>0&&<div style={{width:2,height:6,background:"#1e3a5f"}}/>}
+                  <StepCard step={step} st={st} isEditing={isEd} D={D} isBridge
+                    onStatusClick={()=>onUpdateStep(key,step.id,"status",nextStatus(step.status))}
+                    onEditToggle={()=>onEditToggle({bridgeKey:key,stepId:step.id})}
+                    onChange={(k,v)=>onUpdateStep(key,step.id,k,v)}
+                    onDelete={()=>{if(window.confirm("¿Eliminar?"))onDeleteStep(key,step.id);}}/>
+                </div>
+              );
+            })}
+            {/* Arrow end after bridge steps */}
+            {bSteps.length>0&&(
+              <div style={{display:"flex",alignItems:"center",width:"100%",marginTop:6}}>
+                <div style={{flex:1,height:2,background:"#1e3a5f"}}/>
+                <div style={{width:0,height:0,borderTop:"4px solid transparent",borderBottom:"4px solid transparent",borderLeft:"6px solid #1e3a5f"}}/>
+              </div>
+            )}
+            <button onClick={()=>onAddStep(key,from)}
+              style={{marginTop:5,background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"3px 0",borderRadius:3,fontSize:"8px",width:"100%",fontFamily:"inherit",transition:"all .15s"}}
+              onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
+              onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
+              + intermedio
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// StepCard — shared component
 function StepCard({step,st,isEditing,D,isBridge,onStatusClick,onEditToggle,onChange,onDelete}){
   const owner=D.owners.find(o=>o.id===step.ownerId)||D.owners[0];
   const tags=D.tags.filter(t=>step.tagIds.includes(t.id));
@@ -723,58 +756,52 @@ function StepCard({step,st,isEditing,D,isBridge,onStatusClick,onEditToggle,onCha
       background:step.status==="bloqueado"?"#1a0606":isBridge?"#111d30":"#162030",
       border:`1.5px solid ${isEditing?"#3b82f6":step.status==="bloqueado"?"#dc2626":isBridge?"#1e3a5f":"#1e2d40"}`,
       borderLeft:`3px solid ${st.color}`,
-      borderRadius:6,padding:"10px",
-      boxShadow:step.status==="bloqueado"?"0 0 12px #dc262625":isEditing?"0 0 10px #3b82f620":"none",
+      borderRadius:6,padding:"9px",
+      boxShadow:step.status==="bloqueado"?"0 0 10px #dc262622":isEditing?"0 0 8px #3b82f618":"none",
     }}>
-      {/* Status toggle */}
       <button onClick={onStatusClick}
-        style={{background:st.bg,border:`1px solid ${st.color}`,color:st.color,cursor:"pointer",padding:"2px 7px",borderRadius:10,fontSize:"8px",fontWeight:700,fontFamily:"inherit",marginBottom:7,display:"block"}}>
+        style={{background:st.bg,border:`1px solid ${st.color}`,color:st.color,cursor:"pointer",padding:"2px 7px",borderRadius:10,fontSize:"8px",fontWeight:700,fontFamily:"inherit",marginBottom:6,display:"block"}}>
         {st.label}
       </button>
-      {/* Name */}
       {isEditing
-        ?<input value={step.name} onChange={e=>onChange("name",e.target.value)} style={{...INP,fontSize:"11px",fontWeight:600,marginBottom:6,padding:"4px 6px"}}/>
-        :<div onClick={onEditToggle} style={{fontSize:"11px",fontWeight:600,color:"#e2e8f0",lineHeight:1.3,marginBottom:4,cursor:"text",minHeight:30}}>{step.name}</div>
+        ?<input value={step.name} onChange={e=>onChange("name",e.target.value)} style={{...INP,fontSize:"11px",fontWeight:600,marginBottom:5,padding:"4px 6px"}}/>
+        :<div onClick={onEditToggle} style={{fontSize:"11px",fontWeight:600,color:"#e2e8f0",lineHeight:1.3,marginBottom:4,cursor:"text",minHeight:26}}>{step.name}</div>
       }
-      {/* Desc */}
       {isEditing
         ?<textarea value={step.desc||""} onChange={e=>onChange("desc",e.target.value)} rows={2}
-            placeholder="Descripción…" style={{...INP,fontSize:"10px",resize:"none",marginBottom:6,lineHeight:1.4,padding:"4px 6px"}}/>
-        :step.desc&&<div onClick={onEditToggle} style={{fontSize:"10px",color:"#475569",lineHeight:1.4,marginBottom:5,cursor:"text"}}>{step.desc}</div>
+            placeholder="Descripción…" style={{...INP,fontSize:"10px",resize:"none",marginBottom:5,lineHeight:1.4,padding:"4px 6px"}}/>
+        :step.desc&&<div onClick={onEditToggle} style={{fontSize:"10px",color:"#475569",lineHeight:1.4,marginBottom:4,cursor:"text"}}>{step.desc}</div>
       }
-      {/* Owner */}
       {isEditing
         ?<select value={step.ownerId||""} onChange={e=>onChange("ownerId",e.target.value)}
-            style={{...INP,fontSize:"10px",padding:"3px 5px",marginBottom:6,color:owner.color}}>
+            style={{...INP,fontSize:"10px",padding:"3px 5px",marginBottom:5,color:owner.color}}>
             {D.owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
-        :<div style={{fontSize:"9px",color:owner.color,fontWeight:600,marginBottom:5,display:"flex",alignItems:"center",gap:4}}>
+        :<div style={{fontSize:"9px",color:owner.color,fontWeight:600,marginBottom:4,display:"flex",alignItems:"center",gap:4}}>
             <div style={{width:5,height:5,borderRadius:"50%",background:owner.color,flexShrink:0}}/>
             {owner.name}
           </div>
       }
-      {/* Tags */}
       {isEditing&&(
-        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:6}}>
+        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5}}>
           {D.tags.map(t=>{const sel=step.tagIds.includes(t.id);return(
             <button key={t.id} onClick={()=>onChange("tagIds",sel?step.tagIds.filter(x=>x!==t.id):[...step.tagIds,t.id])}
-              style={{fontSize:"8px",padding:"1px 6px",borderRadius:10,border:`1px solid ${t.color}`,background:sel?t.color:"transparent",color:sel?"#fff":t.color,cursor:"pointer",fontFamily:"inherit"}}>{t.name}</button>
+              style={{fontSize:"8px",padding:"1px 5px",borderRadius:10,border:`1px solid ${t.color}`,background:sel?t.color:"transparent",color:sel?"#fff":t.color,cursor:"pointer",fontFamily:"inherit"}}>{t.name}</button>
           );})}
         </div>
       )}
       {!isEditing&&tags.length>0&&(
-        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5}}>
+        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:4}}>
           {tags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"1px 5px",borderRadius:10,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
         </div>
       )}
-      {/* Actions */}
-      <div style={{display:"flex",gap:5,marginTop:6}}>
+      <div style={{display:"flex",gap:4,marginTop:5}}>
         <button onClick={onEditToggle}
           style={{flex:1,background:"none",border:"1px solid #1e3a5f",color:isEditing?"#3b82f6":"#334155",cursor:"pointer",padding:"3px",borderRadius:3,fontSize:"9px",fontFamily:"inherit"}}>
           {isEditing?"✓ Listo":"✏"}
         </button>
         <button onClick={onDelete}
-          style={{background:"none",border:"1px solid #1e2d40",color:"#3f1010",cursor:"pointer",padding:"3px 7px",borderRadius:3,fontSize:"10px"}}>🗑</button>
+          style={{background:"none",border:"1px solid #1e2d40",color:"#3f1010",cursor:"pointer",padding:"3px 6px",borderRadius:3,fontSize:"10px"}}>🗑</button>
       </div>
     </div>
   );
