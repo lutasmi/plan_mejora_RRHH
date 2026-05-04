@@ -112,10 +112,11 @@ const LAYER_META={
 
 // ── Default cols
 const DEFAULT_COLS=[
-  {id:"pol",label:"Políticas", sub:null,                              color:"#0c2d6b",hl:"#60a5fa",grp:null},
-  {id:"pro",label:"Procesos",  sub:null,                              color:"#052e18",hl:"#34d399",grp:null},
-  {id:"sis",label:"Sistemas",  sub:"ERP · SAP · Datos · BI · Oracle", color:"#3a1400",hl:"#fb923c",grp:null},
-  {id:"gov",label:"Gobierno",  sub:null,                              color:"#5c0a10",hl:"#f87171",grp:null},
+  {id:"pol",label:"Políticas",    sub:null,                color:"#0c2d6b",hl:"#60a5fa",grp:null},
+  {id:"pro",label:"Procesos",     sub:null,                color:"#052e18",hl:"#34d399",grp:null},
+  {id:"her",label:"Herramientas", sub:"ERP · SAP · Oracle",color:"#4a1800",hl:"#fb923c",grp:"sis"},
+  {id:"ana",label:"Analytics",    sub:"Datos · BI",        color:"#2a0a5e",hl:"#c084fc",grp:"sis"},
+  {id:"gov",label:"Gobierno",     sub:null,                color:"#5c0a10",hl:"#f87171",grp:null},
 ];
 
 const INIT={
@@ -149,27 +150,12 @@ const INIT={
 
 // ── Migrate loaded data (adds missing fields without overwriting)
 function migrate(d){
-  if(!d.rows)    d.rows=[];
-  if(!d.cards)   d.cards=[];
-  if(!d.tags)    d.tags=[];
-  if(!d.owners)  d.owners=INIT.owners.map(o=>({...o}));
   if(!d.cols)    d.cols=DEFAULT_COLS.map(c=>({...c}));
   if(!d.config)  d.config={passSegui:"seguimiento",passEditor:"editor"};
   if(!d.config.passSegui) d.config.passSegui="seguimiento";
   if(!d.config.passEditor)d.config.passEditor="editor";
   d.tags  = d.tags.map(t=>({tipo:"interna",...t}));
   if(!d.bridges)d.bridges={};
-  // Migrate her+ana → sis
-  d.cards=d.cards.map(c=>({...c,colId:c.colId==="her"||c.colId==="ana"?"sis":c.colId}));
-  // Migrate cols: replace her+ana with sis if still present
-  if(d.cols){
-    const hasSis=d.cols.some(c=>c.id==="sis");
-    if(!hasSis){
-      d.cols=d.cols
-        .filter(c=>c.id!=="ana")
-        .map(c=>c.id==="her"?{...c,id:"sis",label:"Sistemas",sub:"ERP · SAP · Datos · BI · Oracle",grp:null}:c);
-    }
-  }
   d.cards = d.cards.map(c=>{
     const base={publicado:false,completado:false,subtasks:[],deps:[],steps:[],...c};
     // Migrate subtasks→steps if steps empty
@@ -933,12 +919,21 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
 
   return(
     <div style={{display:"grid",gridTemplateColumns:gc,minWidth:LW+cols.length*CW,columnGap:"3px"}}>
+      {/* Super-header SISTEMAS */}
+      <div style={{position:"sticky",top:0,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"1px solid #1a2535",height:22}}/>
+      {cols.map((col,ci)=>{
+        if(col.grp==="sis"&&ci>0&&cols[ci-1].grp==="sis")return null;
+        const span=col.grp==="sis"?2:1;
+        return(<div key={"sg"+col.id} style={{position:"sticky",top:0,zIndex:54,gridColumn:`span ${span}`,background:col.grp==="sis"?"#1a0a40":"#0d1520",borderLeft:"1px solid #1a2535",borderBottom:"1px solid #1a2535",height:22,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {col.grp==="sis"&&<span style={{fontSize:"8px",letterSpacing:"3px",color:"#a855f7",fontWeight:700}}>SISTEMAS</span>}
+        </div>);
+      })}
       {/* Column headers */}
-      <div style={{position:"sticky",top:0,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"2px solid #253347",padding:"10px 12px",display:"flex",alignItems:"flex-end"}}>
+      <div style={{position:"sticky",top:22,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"2px solid #253347",padding:"10px 12px",display:"flex",alignItems:"flex-end"}}>
         <span style={{fontSize:"8px",letterSpacing:"2px",color:"#253347",fontWeight:600}}>ETAPA DEL CICLO</span>
       </div>
       {cols.map((col,ci)=>(
-        <div key={"ch"+col.id} style={{position:"sticky",top:0,zIndex:52,background:col.color,borderLeft:"1px solid rgba(255,255,255,0.07)",borderBottom:"2px solid rgba(0,0,0,0.45)",padding:"10px 14px 8px"}}>
+        <div key={"ch"+col.id} style={{position:"sticky",top:22,zIndex:52,background:col.color,borderLeft:"1px solid rgba(255,255,255,0.07)",borderBottom:"2px solid rgba(0,0,0,0.45)",padding:"10px 14px 8px"}}>
           <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.4)",marginBottom:3,fontWeight:600}}>{String(ci+1).padStart(2,"0")}</div>
           <div style={{fontSize:"13px",fontWeight:800,color:"#fff",lineHeight:1.2,textShadow:"0 1px 3px rgba(0,0,0,0.6)"}}>{col.label}</div>
           {col.sub&&<div style={{fontSize:"9px",color:"rgba(255,255,255,0.45)",marginTop:2}}>{col.sub}</div>}
@@ -1234,19 +1229,6 @@ function CardPanel({card,D,cols,onSave,onDelete,onClose}){
             <div style={{position:"absolute",top:3,left:f.completado?18:3,width:14,height:14,borderRadius:7,background:f.completado?"#22c55e":"#475569",transition:"left .2s"}}/>
           </div>
         </div>
-        {/* Move to different quadrant */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <Fld label="ETAPA (FILA)">
-            <select value={f.rowId} onChange={e=>set("rowId",e.target.value)} style={{...INP,fontSize:"11px",padding:"5px 7px"}}>
-              {D.rows.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </Fld>
-          <Fld label="PILAR (COLUMNA)">
-            <select value={f.colId} onChange={e=>set("colId",e.target.value)} style={{...INP,fontSize:"11px",padding:"5px 7px"}}>
-              {cols.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
-          </Fld>
-        </div>
         <Fld label="NOMBRE"><input value={f.name} onChange={e=>set("name",e.target.value)} style={INP}/></Fld>
         <Fld label="DESCRIPCIÓN"><textarea value={f.desc} onChange={e=>set("desc",e.target.value)} rows={3} placeholder="Describe de qué trata…" style={{...INP,resize:"vertical",lineHeight:1.6}}/></Fld>
         <Fld label="ENLACE / DOCUMENTO">
@@ -1428,22 +1410,7 @@ const Sec=({title,children})=>(<div><div style={{fontSize:"8px",letterSpacing:"3
 const Pill=({children,color,active,onClick})=>(<button onClick={onClick} style={{fontSize:"9px",padding:"3px 10px",borderRadius:20,border:`1.5px solid ${color}`,background:active?color:"transparent",color:active?"#fff":color,cursor:"pointer",transition:"all .15s",fontFamily:"inherit",fontWeight:600,lineHeight:1.4}}>{children}</button>);
 const VD=()=><div style={{width:1,height:28,background:"#1e2d40",margin:"0 4px",flexShrink:0}}/>;
 
-class ErrorBoundary extends React.Component{
-  constructor(p){super(p);this.state={err:null};}
-  static getDerivedStateFromError(e){return{err:e};}
-  render(){
-    if(this.state.err)return(
-      <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16,background:"#0d1520",padding:32}}>
-        <div style={{fontSize:"10px",letterSpacing:"4px",color:"#ef4444"}}>ERROR DE APLICACIÓN</div>
-        <div style={{fontSize:"14px",color:"#f1f5f9",maxWidth:600,textAlign:"center",lineHeight:1.6}}>{this.state.err.message}</div>
-        <div style={{fontSize:"11px",color:"#475569",maxWidth:600,fontFamily:"monospace",wordBreak:"break-all",textAlign:"center"}}>{this.state.err.stack?.slice(0,300)}</div>
-        <button onClick={()=>{localStorage.removeItem("plan-mejora-local");window.location.reload();}} style={{background:"#1d4ed8",border:"none",color:"#fff",padding:"10px 24px",borderRadius:4,cursor:"pointer",fontSize:"11px",fontFamily:"inherit"}}>Limpiar caché y reintentar</button>
-      </div>
-    );
-    return this.props.children;
-  }
-}
-ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App/></ErrorBoundary>);
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
 </body>
 </html>
