@@ -112,11 +112,11 @@ const LAYER_META={
 
 // ── Default cols
 const DEFAULT_COLS=[
-  {id:"pol",label:"Políticas",    sub:null,                color:"#0c2d6b",hl:"#60a5fa",grp:null},
-  {id:"pro",label:"Procesos",     sub:null,                color:"#052e18",hl:"#34d399",grp:null},
+  {id:"pol",label:"Políticas",    sub:null,               color:"#0c2d6b",hl:"#60a5fa",grp:null},
+  {id:"pro",label:"Procesos",     sub:null,               color:"#052e18",hl:"#34d399",grp:null},
   {id:"her",label:"Herramientas", sub:"ERP · SAP · Oracle",color:"#4a1800",hl:"#fb923c",grp:"sis"},
-  {id:"ana",label:"Analytics",    sub:"Datos · BI",        color:"#2a0a5e",hl:"#c084fc",grp:"sis"},
-  {id:"gov",label:"Gobierno",     sub:null,                color:"#5c0a10",hl:"#f87171",grp:null},
+  {id:"ana",label:"Analytics",    sub:"Datos · BI · Reporting",color:"#2a0a5e",hl:"#c084fc",grp:"sis"},
+  {id:"gov",label:"Gobierno",     sub:null,               color:"#5c0a10",hl:"#f87171",grp:null},
 ];
 
 const INIT={
@@ -425,11 +425,11 @@ function App(){
       {loginOpen&&<LoginModal D={D} onLogin={role=>{setLayer(role);setLoginOpen(false);}} onClose={()=>setLoginOpen(false)}/>}
       {diagOpen&&<DiagModal running={diagRunning} result={diagResult} onRun={runDiag} onClose={()=>{setDiagOpen(false);setDiagResult(null);}}/>}
       {processCard&&<ProcessModal
-        card={processCard} D={D} cols={cols()} layer={layer}
+        card={processCard} D={D} cols={cols()}
         onClose={()=>setProcessCard(null)}
         onSaveCard={c=>{mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});}}
         onSaveBridges={nb=>{mut(d=>{d.bridges=nb;});}}
-      />
+      />}
     </div>
   );
 }
@@ -449,7 +449,6 @@ const nextStatus=id=>{const i=STEP_STATUS.findIndex(s=>s.id===id);return STEP_ST
 const uid2=()=>Math.random().toString(36).slice(2,9);
 
 function getConnectedComponent(startCard,allCards){
-  if(!startCard||!allCards||!allCards.length)return startCard?[startCard]:[];
   const adj={};
   for(const c of allCards)adj[c.id]=new Set();
   for(const c of allCards)for(const d of(c.deps||[]))if(adj[d]){adj[c.id].add(d);adj[d].add(c.id);}
@@ -483,7 +482,7 @@ function groupByLevel(cards){
   return cols;
 }
 
-function ProcessModal({card,D,cols,layer,onClose,onSaveCard,onSaveBridges}){
+function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
   const [bridges,setBridges]=useState(()=>JSON.parse(JSON.stringify(D.bridges||{})));
   const [editingStep,setEditingStep]=useState(null);
 
@@ -563,7 +562,7 @@ function ProcessModal({card,D,cols,layer,onClose,onSaveCard,onSaveBridges}){
       </div>
 
       {/* Main flow — horizontal columns */}
-            <div style={{flex:1,overflow:"auto",padding:"28px 32px 24px"}}>
+      <div style={{flex:1,overflow:"auto",padding:"28px 32px 24px"}}>
         <div style={{display:"flex",alignItems:"flex-start",gap:0,minWidth:"max-content"}}>
           {colGroups.map((colCards,ci)=>{
             const isLastCol=ci===colGroups.length-1;
@@ -667,8 +666,9 @@ function ProcessModal({card,D,cols,layer,onClose,onSaveCard,onSaveBridges}){
               </div>
             );
           })}
-        </div>{/* colGroups flex */}
-      </div>{/* scroll */}
+        </div>
+      </div>
+
       {/* Bottom legend */}
       <div style={{background:"#070d14",borderTop:"1px solid #1e2d40",padding:"8px 24px",flexShrink:0,display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:"9px",color:"#1e3a5f"}}>Clic en estado para cambiarlo · Clic en texto para editar · ESC cerrar</span>
