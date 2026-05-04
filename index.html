@@ -112,10 +112,11 @@ const LAYER_META={
 
 // ── Default cols
 const DEFAULT_COLS=[
-  {id:"pol",label:"Políticas", sub:null,                              color:"#0c2d6b",hl:"#60a5fa",grp:null},
-  {id:"pro",label:"Procesos",  sub:null,                              color:"#052e18",hl:"#34d399",grp:null},
-  {id:"sis",label:"Sistemas",  sub:"ERP · SAP · Datos · BI · Oracle", color:"#3a1400",hl:"#fb923c",grp:null},
-  {id:"gov",label:"Gobierno",  sub:null,                              color:"#5c0a10",hl:"#f87171",grp:null},
+  {id:"pol",label:"Políticas",    sub:null,               color:"#0c2d6b",hl:"#60a5fa",grp:null},
+  {id:"pro",label:"Procesos",     sub:null,               color:"#052e18",hl:"#34d399",grp:null},
+  {id:"her",label:"Herramientas", sub:"ERP · SAP · Oracle",color:"#4a1800",hl:"#fb923c",grp:"sis"},
+  {id:"ana",label:"Analytics",    sub:"Datos · BI · Reporting",color:"#2a0a5e",hl:"#c084fc",grp:"sis"},
+  {id:"gov",label:"Gobierno",     sub:null,               color:"#5c0a10",hl:"#f87171",grp:null},
 ];
 
 const INIT={
@@ -155,17 +156,6 @@ function migrate(d){
   if(!d.config.passEditor)d.config.passEditor="editor";
   d.tags  = d.tags.map(t=>({tipo:"interna",...t}));
   if(!d.bridges)d.bridges={};
-  // Migrate her+ana → sis
-  d.cards=d.cards.map(c=>({...c,colId:c.colId==="her"||c.colId==="ana"?"sis":c.colId}));
-  // Migrate cols: replace her+ana with sis if still present
-  if(d.cols){
-    const hasSis=d.cols.some(c=>c.id==="sis");
-    if(!hasSis){
-      d.cols=d.cols
-        .filter(c=>c.id!=="ana")
-        .map(c=>c.id==="her"?{...c,id:"sis",label:"Sistemas",sub:"ERP · SAP · Datos · BI · Oracle",grp:null}:c);
-    }
-  }
   d.cards = d.cards.map(c=>{
     const base={publicado:false,completado:false,subtasks:[],deps:[],steps:[],...c};
     // Migrate subtasks→steps if steps empty
@@ -435,11 +425,11 @@ function App(){
       {loginOpen&&<LoginModal D={D} onLogin={role=>{setLayer(role);setLoginOpen(false);}} onClose={()=>setLoginOpen(false)}/>}
       {diagOpen&&<DiagModal running={diagRunning} result={diagResult} onRun={runDiag} onClose={()=>{setDiagOpen(false);setDiagResult(null);}}/>}
       {processCard&&<ProcessModal
-        card={processCard} D={D} cols={cols()} layer={layer}
+        card={processCard} D={D} cols={cols()}
         onClose={()=>setProcessCard(null)}
         onSaveCard={c=>{mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});}}
         onSaveBridges={nb=>{mut(d=>{d.bridges=nb;});}}
-      />
+      />}
     </div>
   );
 }
@@ -492,7 +482,7 @@ function groupByLevel(cards){
   return cols;
 }
 
-function ProcessModal({card,D,cols,layer,onClose,onSaveCard,onSaveBridges}){
+function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
   const [bridges,setBridges]=useState(()=>JSON.parse(JSON.stringify(D.bridges||{})));
   const [editingStep,setEditingStep]=useState(null);
 
@@ -571,67 +561,7 @@ function ProcessModal({card,D,cols,layer,onClose,onSaveCard,onSaveBridges}){
         </div>
       </div>
 
-      {/* Main flow — horizontal columns + optional sidebar */}
-      <div style={{flex:1,display:"flex",overflow:"hidden"}}>
-      {/* Left sidebar: intermediate steps index — editor/seguimiento only */}
-      {layer!==L.C&&(
-        <div style={{width:220,flexShrink:0,background:"#070d14",borderRight:"1px solid #1e2d40",overflow:"auto",padding:"16px 12px",display:"flex",flexDirection:"column",gap:12}}>
-          <div style={{fontSize:"8px",letterSpacing:"3px",color:"#253347",fontWeight:700,marginBottom:4}}>PASOS INTERMEDIOS</div>
-          {Object.keys(bridges).length===0&&Object.values(component.reduce((acc,c)=>{(c.steps||[]).forEach(s=>{acc[s.id]=s;});return acc;},{})).length===0&&(
-            <div style={{fontSize:"10px",color:"#1e3a5f",lineHeight:1.6}}>Sin pasos definidos aún. Usa "+ paso" o "+ intermedio" en el flujo.</div>
-          )}
-          {/* Card steps grouped by card */}
-          {component.map(c=>{
-            const steps=(c.steps||[]);
-            if(!steps.length)return null;
-            const col2=cols.find(x=>x.id===c.colId);
-            return(
-              <div key={c.id}>
-                <div style={{fontSize:"8px",color:col2?.hl||"#475569",fontWeight:700,marginBottom:5,letterSpacing:"0.5px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div>
-                {steps.map(s=>{
-                  const st=STEP_STATUS.find(x=>x.id===s.status)||STEP_STATUS[0];
-                  return(
-                    <div key={s.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"5px 7px",background:"#0d1826",borderRadius:4,marginBottom:4,border:`1px solid ${s.status==="bloqueado"?"#7f1d1d":"#1e2d40"}`}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:st.dot,flexShrink:0,marginTop:3}}/>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:"10px",color:"#cbd5e1",fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-                        <div style={{fontSize:"9px",color:"#334155",marginTop:1}}>{st.label}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-          {/* Bridge steps */}
-          {Object.entries(bridges).map(([key,steps])=>{
-            if(!steps.length)return null;
-            const [fromId,toId]=key.split(":");
-            const fromC=D.cards.find(c=>c.id===fromId),toC=D.cards.find(c=>c.id===toId);
-            return(
-              <div key={key}>
-                <div style={{fontSize:"8px",color:"#475569",fontWeight:700,marginBottom:5,lineHeight:1.3}}>
-                  <span style={{color:"#334155"}}>{fromC?.name||fromId}</span>
-                  <span style={{color:"#1e3a5f"}}> → </span>
-                  <span style={{color:"#334155"}}>{toC?.name||toId}</span>
-                </div>
-                {steps.map(s=>{
-                  const st=STEP_STATUS.find(x=>x.id===s.status)||STEP_STATUS[0];
-                  return(
-                    <div key={s.id} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"5px 7px",background:"#0a1520",borderRadius:4,marginBottom:4,border:`1px solid ${s.status==="bloqueado"?"#7f1d1d":"#1e2d40"}`,borderLeft:`2px solid ${st.color}`}}>
-                      <div style={{width:6,height:6,borderRadius:"50%",background:st.dot,flexShrink:0,marginTop:3}}/>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:"10px",color:"#94a3b8",fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-                        <div style={{fontSize:"9px",color:"#334155",marginTop:1}}>{st.label}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* Main flow — horizontal columns */}
       <div style={{flex:1,overflow:"auto",padding:"28px 32px 24px"}}>
         <div style={{display:"flex",alignItems:"flex-start",gap:0,minWidth:"max-content"}}>
           {colGroups.map((colCards,ci)=>{
@@ -736,9 +666,9 @@ function ProcessModal({card,D,cols,layer,onClose,onSaveCard,onSaveBridges}){
               </div>
             );
           })}
-        </div>{/* colGroups flex */}
-      </div>{/* scroll */}
-      </div>{/* flex body */}
+        </div>
+      </div>
+
       {/* Bottom legend */}
       <div style={{background:"#070d14",borderTop:"1px solid #1e2d40",padding:"8px 24px",flexShrink:0,display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:"9px",color:"#1e3a5f"}}>Clic en estado para cambiarlo · Clic en texto para editar · ESC cerrar</span>
@@ -989,12 +919,21 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
 
   return(
     <div style={{display:"grid",gridTemplateColumns:gc,minWidth:LW+cols.length*CW,columnGap:"3px"}}>
+      {/* Super-header SISTEMAS */}
+      <div style={{position:"sticky",top:0,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"1px solid #1a2535",height:22}}/>
+      {cols.map((col,ci)=>{
+        if(col.grp==="sis"&&ci>0&&cols[ci-1].grp==="sis")return null;
+        const span=col.grp==="sis"?2:1;
+        return(<div key={"sg"+col.id} style={{position:"sticky",top:0,zIndex:54,gridColumn:`span ${span}`,background:col.grp==="sis"?"#1a0a40":"#0d1520",borderLeft:"1px solid #1a2535",borderBottom:"1px solid #1a2535",height:22,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {col.grp==="sis"&&<span style={{fontSize:"8px",letterSpacing:"3px",color:"#a855f7",fontWeight:700}}>SISTEMAS</span>}
+        </div>);
+      })}
       {/* Column headers */}
-      <div style={{position:"sticky",top:0,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"2px solid #253347",padding:"10px 12px",display:"flex",alignItems:"flex-end"}}>
+      <div style={{position:"sticky",top:22,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"2px solid #253347",padding:"10px 12px",display:"flex",alignItems:"flex-end"}}>
         <span style={{fontSize:"8px",letterSpacing:"2px",color:"#253347",fontWeight:600}}>ETAPA DEL CICLO</span>
       </div>
       {cols.map((col,ci)=>(
-        <div key={"ch"+col.id} style={{position:"sticky",top:0,zIndex:52,background:col.color,borderLeft:"1px solid rgba(255,255,255,0.07)",borderBottom:"2px solid rgba(0,0,0,0.45)",padding:"10px 14px 8px"}}>
+        <div key={"ch"+col.id} style={{position:"sticky",top:22,zIndex:52,background:col.color,borderLeft:"1px solid rgba(255,255,255,0.07)",borderBottom:"2px solid rgba(0,0,0,0.45)",padding:"10px 14px 8px"}}>
           <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.4)",marginBottom:3,fontWeight:600}}>{String(ci+1).padStart(2,"0")}</div>
           <div style={{fontSize:"13px",fontWeight:800,color:"#fff",lineHeight:1.2,textShadow:"0 1px 3px rgba(0,0,0,0.6)"}}>{col.label}</div>
           {col.sub&&<div style={{fontSize:"9px",color:"rgba(255,255,255,0.45)",marginTop:2}}>{col.sub}</div>}
@@ -1289,19 +1228,6 @@ function CardPanel({card,D,cols,onSave,onDelete,onClose}){
           <div style={{width:36,height:20,borderRadius:10,background:f.completado?"#166534":"#253347",position:"relative",transition:"background .2s",flexShrink:0}}>
             <div style={{position:"absolute",top:3,left:f.completado?18:3,width:14,height:14,borderRadius:7,background:f.completado?"#22c55e":"#475569",transition:"left .2s"}}/>
           </div>
-        </div>
-        {/* Move to different quadrant */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <Fld label="ETAPA (FILA)">
-            <select value={f.rowId} onChange={e=>set("rowId",e.target.value)} style={{...INP,fontSize:"11px",padding:"5px 7px"}}>
-              {D.rows.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </Fld>
-          <Fld label="PILAR (COLUMNA)">
-            <select value={f.colId} onChange={e=>set("colId",e.target.value)} style={{...INP,fontSize:"11px",padding:"5px 7px"}}>
-              {cols.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
-          </Fld>
         </div>
         <Fld label="NOMBRE"><input value={f.name} onChange={e=>set("name",e.target.value)} style={INP}/></Fld>
         <Fld label="DESCRIPCIÓN"><textarea value={f.desc} onChange={e=>set("desc",e.target.value)} rows={3} placeholder="Describe de qué trata…" style={{...INP,resize:"vertical",lineHeight:1.6}}/></Fld>
