@@ -265,6 +265,7 @@ function App(){
           onSelectBridge={openBridge}
           onMoveCard={moveCard} onAddCard={addCard}
           onPillarResize={(id,w)=>mut(d=>{const p=d.pillars.find(p=>p.id===id);if(p)p.w=Math.max(180,w);})}
+          onRowResize={(id,h)=>mut(d=>{const r=d.rows.find(r=>r.id===id);if(r)r.h=h;})}
           bridges={D.bridges}/>
         {panel==="card"&&selCardObj&&(
           <CardPanel key={selCardObj.id} card={selCardObj} D={D} canEdit={canEdit} isPublic={isPublic}
@@ -280,7 +281,7 @@ function App(){
 }
 
 // ── Canvas — SVG background + HTML cards overlay ───────────────────────────────
-function Canvas({D,layer,canEdit,isPublic,selCard,hlCard,related,hasFilter,isVisible,onSelectCard,onHlCard,onSelectBridge,onMoveCard,onAddCard,onPillarResize,bridges}){
+function Canvas({D,layer,canEdit,isPublic,selCard,hlCard,related,hasFilter,isVisible,onSelectCard,onHlCard,onSelectBridge,onMoveCard,onAddCard,onPillarResize,onRowResize,bridges}){
   const containerRef=useRef(null);
   const [vp,setVp]=useState({x:ROW_LBL_W,y:0,scale:1});
   const [size,setSize]=useState({w:1400,h:900});
@@ -314,6 +315,9 @@ function Canvas({D,layer,canEdit,isPublic,selCard,hlCard,related,hasFilter,isVis
     } else if(drag.current.type==="resize"){
       const dxCanvas=(e.clientX-drag.current.startX)/vp.scale;
       onPillarResize(drag.current.id,drag.current.origW+dxCanvas);
+    } else if(drag.current.type==="rowresize"){
+      const dyCanvas=(e.clientY-drag.current.startY)/vp.scale;
+      onRowResize(drag.current.id, Math.max(120, drag.current.origH+dyCanvas));
     }
   };
   const onBgUp=()=>{drag.current=null;};
@@ -401,6 +405,9 @@ function Canvas({D,layer,canEdit,isPublic,selCard,hlCard,related,hasFilter,isVis
               <line x1={ROW_LBL_W-1} y1={ry} x2={ROW_LBL_W-1} y2={ry+row.h} stroke="#21262d" strokeWidth={1}/>
               <text x={ROW_LBL_W/2} y={ry+row.h/2} textAnchor="middle" dominantBaseline="middle" fontSize={11} fontWeight={600} fill="#484f58" style={{userSelect:"none"}}>{row.label}</text>
               <line x1={0} y1={ry+row.h} x2={TW} y2={ry+row.h} stroke="#21262d" strokeWidth={1}/>
+              {/* Row resize handle */}
+              {canEdit&&<rect x={0} y={ry+row.h-5} width={ROW_LBL_W-1} height={10} fill="transparent" style={{cursor:"row-resize"}}
+                onPointerDown={e=>{e.stopPropagation();drag.current={type:"rowresize",id:row.id,startY:e.clientY,origH:row.h};e.currentTarget.setPointerCapture(e.pointerId);}}/>}
             </g>);
           })}
           {/* Pillars */}
