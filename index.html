@@ -112,11 +112,10 @@ const LAYER_META={
 
 // ── Default cols
 const DEFAULT_COLS=[
-  {id:"pol",label:"Políticas",    sub:null,               color:"#0c2d6b",hl:"#60a5fa",grp:null},
-  {id:"pro",label:"Procesos",     sub:null,               color:"#052e18",hl:"#34d399",grp:null},
-  {id:"her",label:"Herramientas", sub:"ERP · SAP · Oracle",color:"#4a1800",hl:"#fb923c",grp:"sis"},
-  {id:"ana",label:"Analytics",    sub:"Datos · BI · Reporting",color:"#2a0a5e",hl:"#c084fc",grp:"sis"},
-  {id:"gov",label:"Gobierno",     sub:null,               color:"#5c0a10",hl:"#f87171",grp:null},
+  {id:"pol",label:"Políticas", sub:null,                              color:"#0c2d6b",hl:"#60a5fa",grp:null},
+  {id:"pro",label:"Procesos",  sub:null,                              color:"#052e18",hl:"#34d399",grp:null},
+  {id:"sis",label:"Sistemas",  sub:"ERP · SAP · Datos · BI · Oracle", color:"#3a1400",hl:"#fb923c",grp:null},
+  {id:"gov",label:"Gobierno",  sub:null,                              color:"#5c0a10",hl:"#f87171",grp:null},
 ];
 
 const INIT={
@@ -156,6 +155,12 @@ function migrate(d){
   if(!d.config.passEditor)d.config.passEditor="editor";
   d.tags  = d.tags.map(t=>({tipo:"interna",...t}));
   if(!d.bridges)d.bridges={};
+  d.cards=d.cards.map(c=>({...c,colId:(c.colId==="her"||c.colId==="ana")?"sis":c.colId}));
+  if(d.cols&&!d.cols.some(c=>c.id==="sis")){
+    d.cols=d.cols.filter(c=>c.id!=="her"&&c.id!=="ana");
+    const pi=d.cols.findIndex(c=>c.id==="pro");
+    d.cols.splice(pi+1,0,{id:"sis",label:"Sistemas",sub:"ERP · SAP · Datos · BI · Oracle",color:"#3a1400",hl:"#fb923c",grp:null});
+  }
   d.cards = d.cards.map(c=>{
     const base={publicado:false,completado:false,subtasks:[],deps:[],steps:[],...c};
     // Migrate subtasks→steps if steps empty
@@ -919,21 +924,12 @@ function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl
 
   return(
     <div style={{display:"grid",gridTemplateColumns:gc,minWidth:LW+cols.length*CW,columnGap:"3px"}}>
-      {/* Super-header SISTEMAS */}
-      <div style={{position:"sticky",top:0,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"1px solid #1a2535",height:22}}/>
-      {cols.map((col,ci)=>{
-        if(col.grp==="sis"&&ci>0&&cols[ci-1].grp==="sis")return null;
-        const span=col.grp==="sis"?2:1;
-        return(<div key={"sg"+col.id} style={{position:"sticky",top:0,zIndex:54,gridColumn:`span ${span}`,background:col.grp==="sis"?"#1a0a40":"#0d1520",borderLeft:"1px solid #1a2535",borderBottom:"1px solid #1a2535",height:22,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          {col.grp==="sis"&&<span style={{fontSize:"8px",letterSpacing:"3px",color:"#a855f7",fontWeight:700}}>SISTEMAS</span>}
-        </div>);
-      })}
       {/* Column headers */}
       <div style={{position:"sticky",top:22,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"2px solid #253347",padding:"10px 12px",display:"flex",alignItems:"flex-end"}}>
         <span style={{fontSize:"8px",letterSpacing:"2px",color:"#253347",fontWeight:600}}>ETAPA DEL CICLO</span>
       </div>
       {cols.map((col,ci)=>(
-        <div key={"ch"+col.id} style={{position:"sticky",top:22,zIndex:52,background:col.color,borderLeft:"1px solid rgba(255,255,255,0.07)",borderBottom:"2px solid rgba(0,0,0,0.45)",padding:"10px 14px 8px"}}>
+        <div key={"ch"+col.id} style={{position:"sticky",top:0,zIndex:52,background:col.color,borderLeft:"1px solid rgba(255,255,255,0.07)",borderBottom:"2px solid rgba(0,0,0,0.45)",padding:"10px 14px 8px"}}>
           <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.4)",marginBottom:3,fontWeight:600}}>{String(ci+1).padStart(2,"0")}</div>
           <div style={{fontSize:"13px",fontWeight:800,color:"#fff",lineHeight:1.2,textShadow:"0 1px 3px rgba(0,0,0,0.6)"}}>{col.label}</div>
           {col.sub&&<div style={{fontSize:"9px",color:"rgba(255,255,255,0.45)",marginTop:2}}>{col.sub}</div>}
