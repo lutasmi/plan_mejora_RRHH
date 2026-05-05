@@ -3,1311 +3,722 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Plan de Mejora RRHH</title>
+<title>Canvas RRHH</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#16202e;color:#e2e8f0;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;height:100vh}
-input,textarea,select{font-family:inherit}
-::-webkit-scrollbar{width:7px;height:7px}
-::-webkit-scrollbar-track{background:#1e293b}
-::-webkit-scrollbar-thumb{background:#3b4f68;border-radius:4px}
-input[type=color]{-webkit-appearance:none;border:none;cursor:pointer}
+html,body,#root{width:100%;height:100%;overflow:hidden;background:#0d1117}
+body{font-family:'Segoe UI',system-ui,sans-serif;color:#e6edf3}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#161b22}
+::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+input,textarea,select,button{font-family:inherit}
+input[type=color]{-webkit-appearance:none;border:none;padding:0;cursor:pointer}
 input[type=color]::-webkit-color-swatch-wrapper{padding:0}
 input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
-.chip{transition:opacity .18s,box-shadow .15s,transform .12s}
-.chip:hover{transform:translateY(-1px)}
-.addrow:hover{border-color:#3b4f68!important;color:#64748b!important}
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000}
-.process-modal{position:fixed;inset:0;background:#0a1020;z-index:500;display:flex;flex-direction:column;overflow:hidden}
-.step-card{transition:all .2s;cursor:pointer;flex-shrink:0}
-.step-card:hover{transform:translateY(-2px)}
-.step-edit input,.step-edit textarea,.step-edit select{font-family:inherit}
+.card-node{position:absolute;cursor:grab;user-select:none;transition:box-shadow .15s,transform .1s}
+.card-node:active{cursor:grabbing}
+.card-node.selected{transform:translateY(-2px)}
+.pillar-zone{position:absolute;top:0;bottom:0;pointer-events:none}
+.row-band{position:absolute;left:0;right:0;pointer-events:none}
+.panel-slide{transition:transform .2s cubic-bezier(.4,0,.2,1)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade-up{animation:fadeUp .18s ease forwards}
 </style>
 </head>
 <body><div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useLayoutEffect } = React;
+const {useState,useEffect,useRef,useCallback,useLayoutEffect}=React;
 
-// ── FIXED key — never changes, data is always safe
-const SKEY = "plan-mejora";
+// ── Supabase ─────────────────────────────────────────────────────────────────
 const SUPA_URL="https://dlbysoybuanzfbgbqgwi.supabase.co";
 const SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsYnlzb3lidWFuemZiZ2JxZ3dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NTAxNzYsImV4cCI6MjA5MjUyNjE3Nn0.H1te91wXuuqwH0Farbz2Zt5eXeza0rBvlENLxh1Q18E";
 const sb=supabase.createClient(SUPA_URL,SUPA_KEY);
-
-const LKEY="plan-mejora-local"; // localStorage backup key
+const SKEY="canvas-v1";
+const LKEY="canvas-local-v1";
 
 async function dbLoad(){
-  // 1. Try Supabase
   try{
-    const{data,error}=await sb.from("app_data").select("value").eq("key",SKEY).single();
-    // Note: "PGRST116" = row not found (not an error, just empty)
-    if(error&&error.code!=="PGRST116"){
-      console.warn("Supabase load error:",error.message||JSON.stringify(error));
-    } else if(data&&data.value){
+    const{data,error}=await sb.from("canvas_data").select("value").eq("key",SKEY).single();
+    if(!error&&data?.value){
       const parsed=JSON.parse(data.value);
       try{localStorage.setItem(LKEY,data.value);}catch(e){}
-      return{data:parsed,source:"cloud"};
+      return{data:parsed,src:"cloud"};
     }
-  }catch(e){console.warn("Supabase load exception:",e);}
-  // 2. Fallback to localStorage
+  }catch(e){}
   try{
     const local=localStorage.getItem(LKEY);
-    if(local)return{data:JSON.parse(local),source:"local"};
-  }catch(e){console.warn("localStorage load failed:",e);}
-  return{data:null,source:"none"};
+    if(local)return{data:JSON.parse(local),src:"local"};
+  }catch(e){}
+  return{data:null,src:"none"};
 }
-
 async function dbSave(v){
   const str=JSON.stringify(v);
-  // 1. Always save to localStorage first
-  try{localStorage.setItem(LKEY,str);}catch(e){console.warn("localStorage failed:",e);}
-  // 2. Save to Supabase — IMPORTANT: supabase-js never throws, must check {error}
+  try{localStorage.setItem(LKEY,str);}catch(e){}
   try{
-    const{error}=await sb.from("app_data")
-      .upsert({key:SKEY,value:str},{onConflict:"key"});
-    if(error){
-      console.error("Supabase upsert error:",error);
-      return{ok:false,error:error.message||JSON.stringify(error)};
-    }
-    return{ok:true};
-  }catch(e){
-    console.error("Supabase exception:",e);
-    return{ok:false,error:e.message||String(e)};
-  }
+    const{error}=await sb.from("canvas_data").upsert({key:SKEY,value:str},{onConflict:"key"});
+    return !error;
+  }catch(e){return false;}
 }
 
-// Diagnostic: tests write + read + verify against Supabase
-async function testSupabase(){
-  const tKey="test-conn-"+Date.now();
-  const tVal="ping-"+Date.now();
-  // Write
-  try{
-    const{error}=await sb.from("app_data")
-      .upsert({key:tKey,value:tVal},{onConflict:"key"});
-    if(error)return{ok:false,step:"escritura",msg:error.message||JSON.stringify(error)};
-  }catch(e){return{ok:false,step:"escritura",msg:e.message||String(e)};}
-  // Read back
-  try{
-    const{data,error}=await sb.from("app_data").select("value").eq("key",tKey).single();
-    if(error)return{ok:false,step:"lectura",msg:error.message||JSON.stringify(error)};
-    if(!data)return{ok:false,step:"lectura",msg:"No se encontró el registro recién guardado"};
-    if(data.value!==tVal)return{ok:false,step:"verificación",msg:"El valor leído no coincide con el guardado"};
-    // Cleanup
-    await sb.from("app_data").delete().eq("key",tKey);
-    return{ok:true};
-  }catch(e){return{ok:false,step:"lectura",msg:e.message||String(e)};}
-}
-
-// ── Layers
+// ── Constants ─────────────────────────────────────────────────────────────────
+const uid=()=>Math.random().toString(36).slice(2,9);
 const L={C:"consulta",S:"seguimiento",E:"editor"};
-const LAYER_META={
-  [L.C]:{label:"Vista pública",  color:"#1d4ed8",hl:"#60a5fa"},
-  [L.S]:{label:"Seguimiento",    color:"#92400e",hl:"#fbbf24"},
-  [L.E]:{label:"Editor",         color:"#065f46",hl:"#34d399"},
-};
+const LAYER_COLORS={[L.C]:"#1f6feb",[L.S]:"#9e6a03",[L.E]:"#238636"};
 
-// ── Default cols
-const DEFAULT_COLS=[
-  {id:"pol",label:"Políticas", sub:null,                              color:"#0c2d6b",hl:"#60a5fa",grp:null},
-  {id:"pro",label:"Procesos",  sub:null,                              color:"#052e18",hl:"#34d399",grp:null},
-  {id:"sis",label:"Sistemas",  sub:"ERP · SAP · Datos · BI · Oracle", color:"#3a1400",hl:"#fb923c",grp:null},
-  {id:"gov",label:"Gobierno",  sub:null,                              color:"#5c0a10",hl:"#f87171",grp:null},
+const DEFAULT_PILLARS=[
+  {id:"pol",label:"Políticas",   color:"#0d1f3c",hl:"#388bfd",border:"#1f4080"},
+  {id:"pro",label:"Procesos",    color:"#0d2818",hl:"#3fb950",border:"#1a5c32"},
+  {id:"sis",label:"Sistemas",    color:"#2d1a00",hl:"#f0883e",border:"#6e3a00"},
+  {id:"gov",label:"Gobierno",    color:"#2d0e0e",hl:"#f85149",border:"#6e1a1a"},
+  {id:"efi",label:"Eficiencia",  color:"#0d2637",hl:"#39c5cf",border:"#0e5c6e"},
 ];
+const DEFAULT_ROWS=[
+  {id:"r1",label:"Alta / Contratación",   y:80,  h:160},
+  {id:"r2",label:"Onboarding",            y:240, h:160},
+  {id:"r3",label:"Cambios Contractuales", y:400, h:160},
+  {id:"r4",label:"Retribución",           y:560, h:160},
+  {id:"r5",label:"Desempeño",             y:720, h:160},
+  {id:"r6",label:"Formación",             y:880, h:160},
+  {id:"r7",label:"Promoción",             y:1040,h:160},
+  {id:"r8",label:"Movilidad Interna",     y:1200,h:160},
+  {id:"r9",label:"Expatriación",          y:1360,h:160},
+  {id:"r10",label:"Desvinculación",       y:1520,h:160},
+];
+const PILLAR_W=320;
+const ROW_LABEL_W=140;
+const CARD_W=220;
+const CARD_MIN_H=90;
+const STEP_STATUS=[
+  {id:"pendiente", label:"Pendiente", color:"#6e7681"},
+  {id:"en_curso",  label:"En curso",  color:"#388bfd"},
+  {id:"bloqueado", label:"Bloqueado", color:"#f85149"},
+  {id:"completado",label:"Completado",color:"#3fb950"},
+];
+const nextSt=id=>{const i=STEP_STATUS.findIndex(s=>s.id===id);return STEP_STATUS[(i+1)%STEP_STATUS.length].id;};
 
-const INIT={
-  cols:DEFAULT_COLS,
-  rows:[
-    {id:"r1",name:"Alta / Contratación"},{id:"r2",name:"Onboarding"},
-    {id:"r3",name:"Cambios Contractuales"},{id:"r4",name:"Retribución y Compensación"},
-    {id:"r5",name:"Evaluación del Desempeño"},{id:"r6",name:"Formación y Desarrollo"},
-    {id:"r7",name:"Promoción y Carrera"},{id:"r8",name:"Movilidad Interna"},
-    {id:"r9",name:"Expatriación"},{id:"r10",name:"Desvinculación / Offboarding"},
-  ],
+const INIT_D={
   cards:[],
-  bridges:{},
+  pillars:DEFAULT_PILLARS,
+  rows:DEFAULT_ROWS,
   owners:[
-    {id:"o1",name:"Sin asignar",color:"#475569"},
-    {id:"o2",name:"HR Director",color:"#ef4444"},
-    {id:"o3",name:"HR Ops Manager",color:"#38bdf8"},
-    {id:"o4",name:"Dir. de Talento",color:"#34d399"},
-    {id:"o5",name:"Legal / Compliance",color:"#f59e0b"},
-    {id:"o6",name:"IT / Sistemas",color:"#a78bfa"},
+    {id:"o1",name:"Sin asignar",   color:"#6e7681"},
+    {id:"o2",name:"HR Director",   color:"#f85149"},
+    {id:"o3",name:"HR Ops",        color:"#388bfd"},
+    {id:"o4",name:"Dir. Talento",  color:"#3fb950"},
+    {id:"o5",name:"Legal",         color:"#f0883e"},
+    {id:"o6",name:"IT",            color:"#bc8cff"},
   ],
   tags:[
-    {id:"tg1",name:"Prioritario",color:"#ef4444",tipo:"interna"},
-    {id:"tg2",name:"En curso",   color:"#f59e0b",tipo:"interna"},
-    {id:"tg3",name:"Pendiente",  color:"#64748b",tipo:"interna"},
-    {id:"tg4",name:"Quick win",  color:"#34d399",tipo:"interna"},
-    {id:"tg5",name:"Revisión",   color:"#c084fc",tipo:"interna"},
+    {id:"tg1",name:"Prioritario",color:"#f85149",tipo:"interna"},
+    {id:"tg2",name:"En curso",   color:"#f0883e",tipo:"interna"},
+    {id:"tg3",name:"Pendiente",  color:"#6e7681",tipo:"interna"},
+    {id:"tg4",name:"Quick win",  color:"#3fb950",tipo:"publicada"},
   ],
   config:{passSegui:"seguimiento",passEditor:"editor"},
 };
 
-// ── Migrate loaded data (adds missing fields without overwriting)
 function migrate(d){
-  if(!d.cols)    d.cols=DEFAULT_COLS.map(c=>({...c}));
-  if(!d.config)  d.config={passSegui:"seguimiento",passEditor:"editor"};
-  if(!d.config.passSegui) d.config.passSegui="seguimiento";
-  if(!d.config.passEditor)d.config.passEditor="editor";
-  d.tags  = d.tags.map(t=>({tipo:"interna",...t}));
-  if(!d.bridges)d.bridges={};
-  d.cards=d.cards.map(c=>({...c,colId:(c.colId==="her"||c.colId==="ana")?"sis":c.colId}));
-  if(d.cols&&!d.cols.some(c=>c.id==="sis")){
-    d.cols=d.cols.filter(c=>c.id!=="her"&&c.id!=="ana");
-    const pi=d.cols.findIndex(c=>c.id==="pro");
-    d.cols.splice(pi+1,0,{id:"sis",label:"Sistemas",sub:"ERP · SAP · Datos · BI · Oracle",color:"#3a1400",hl:"#fb923c",grp:null});
-  }
-  d.cards = d.cards.map(c=>{
-    const base={publicado:false,completado:false,subtasks:[],deps:[],steps:[],...c};
-    // Migrate subtasks→steps if steps empty
-    if(base.steps.length===0&&base.subtasks.length>0){
-      base.steps=base.subtasks.map(s=>({
-        id:s.id,name:s.name,desc:"",ownerId:base.ownerId,tagIds:[],
-        status:s.done?"completado":"pendiente"
-      }));
-    }
-    return base;
-  });
+  if(!d.pillars)d.pillars=DEFAULT_PILLARS.map(p=>({...p}));
+  if(!d.rows)   d.rows=DEFAULT_ROWS.map(r=>({...r}));
+  if(!d.owners) d.owners=INIT_D.owners.map(o=>({...o}));
+  if(!d.tags)   d.tags=INIT_D.tags.map(t=>({...t}));
+  if(!d.config) d.config={passSegui:"seguimiento",passEditor:"editor"};
+  if(!d.cards)  d.cards=[];
+  d.cards=d.cards.map(c=>({
+    steps:[],deps:[],publicado:false,completado:false,
+    x:200,y:200,ownerId:"o1",tagIds:[],desc:"",url:"",
+    ...c
+  }));
   return d;
 }
 
-const uid=()=>Math.random().toString(36).slice(2,8);
-const LW=162,CW=248;
-const INP={background:"#1e293b",border:"1px solid #334155",color:"#e2e8f0",padding:"7px 9px",fontSize:"12px",borderRadius:4,fontFamily:"inherit",outline:"none",width:"100%",boxSizing:"border-box"};
-const BTN={background:"transparent",border:"1px solid #334155",color:"#94a3b8",cursor:"pointer",padding:"5px 12px",fontSize:"10px",letterSpacing:"0.5px",borderRadius:4,fontFamily:"inherit"};
-
-function exportCSV(D){
-  const cols=D.cols||DEFAULT_COLS;
-  const hdr=["Etapa","Columna","Nombre","Descripción","URL","Owner","Etiquetas","Publicado","Subtareas","Dependencias","Sem.Inicio","Sem.Fin"];
-  const rows=[hdr];
-  for(const c of D.cards){
-    const row=D.rows.find(r=>r.id===c.rowId),col=cols.find(x=>x.id===c.colId),own=D.owners.find(o=>o.id===c.ownerId);
-    const tags=D.tags.filter(t=>c.tagIds.includes(t.id)).map(t=>t.name).join(";");
-    const subs=(c.subtasks||[]).map(s=>s.name).join(";");
-    const deps=(c.deps||[]).map(d=>{const dc=D.cards.find(x=>x.id===d);return dc?dc.name:d;}).join(";");
-    rows.push([row?.name||"",col?.label||"",c.name,c.desc||"",c.url||"",own?.name||"",tags,c.publicado?"Sí":"No",subs,deps,c.sw,c.ew]);
-  }
-  const csv=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8;"}));
-  a.download="plan-mejora-rrhh.csv";a.click();
-}
-
-function topoSort(cards){
-  const ids=new Set(cards.map(c=>c.id));
-  const inDeg={},adj={};
-  for(const c of cards){inDeg[c.id]=0;adj[c.id]=[];}
-  for(const c of cards)for(const d of(c.deps||[]))if(ids.has(d)){adj[d].push(c.id);inDeg[c.id]++;}
-  const q=cards.filter(c=>inDeg[c.id]===0).map(c=>c.id);
-  const out=[];const vis=new Set();
-  while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);out.push(id);for(const n of adj[id])if(--inDeg[n]===0)q.push(n);}
-  for(const c of cards)if(!vis.has(c.id))out.push(c.id);
-  return out.map(id=>cards.find(c=>c.id===id)).filter(Boolean);
-}
-function getCellGroups(cards){
-  if(!cards.length)return[];
-  const ids=new Set(cards.map(c=>c.id));
-  const adj={};
-  for(const c of cards)adj[c.id]=[];
-  for(const c of cards)for(const d of(c.deps||[]))if(ids.has(d)){adj[c.id].push(d);adj[d].push(c.id);}
-  const vis=new Set(),groups=[];
-  for(const c of cards){
-    if(vis.has(c.id))continue;
-    const comp=[],q=[c.id];
-    while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);comp.push(cards.find(x=>x.id===id));(adj[id]||[]).forEach(n=>q.push(n));}
-    const sorted=topoSort(comp);
-    const edges=new Set();
-    for(const x of comp)for(const d of(x.deps||[]))if(ids.has(d))edges.add(d+":"+x.id);
-    groups.push({cards:sorted,isGroup:comp.length>1,edges});
-  }
-  return groups;
-}
-
-// ────────────────────────────────────────────────────────────────
-// APP
-// ────────────────────────────────────────────────────────────────
+// ── App ───────────────────────────────────────────────────────────────────────
 function App(){
-  const [D,setD]         =useState(null);
-  const [layer,setLayer] =useState(L.C);
-  const [panel,setPanel] =useState(null);   // "card"|"settings"|"consulta-card"
-  const [editing,setEditing]=useState(null);
-  const [fOwners,setFOwners]=useState([]);
-  const [fTags,setFTags] =useState([]);
-  const [saved,setSaved] =useState(true);
+  const [D,setD]       =useState(null);
   const [loading,setLoading]=useState(true);
-  const [showFlow,setShowFlow]=useState(false);
-  const [hlId,setHlId]   =useState(null);
-  const [arrows,setArrows]=useState([]);
-  const [svgDims,setSvgDims]=useState({w:0,h:0});
+  const [saved,setSaved]=useState(true);
+  const [saveOk,setSaveOk]=useState(true);
+  const [layer,setLayer]=useState(L.C);
   const [loginOpen,setLoginOpen]=useState(false);
-  const [diagOpen,setDiagOpen]=useState(false);
-  const [diagResult,setDiagResult]=useState(null);
-  const [diagRunning,setDiagRunning]=useState(false);
-  const runDiag=async()=>{setDiagRunning(true);setDiagResult(null);const r=await testSupabase();setDiagResult(r);setDiagRunning(false);};
-  const [processCard,setProcessCard]=useState(null); // card open in process view
+  const [selected,setSelected]=useState(null); // card id
+  const [panel,setPanel]   =useState(null);    // "card"|"settings"|null
+  const [fOwners,setFOwners]=useState([]);
+  const [fTags,setFTags]   =useState([]);
   const saveTimer=useRef(null);
-  const cardRefs=useRef({});
-  const scrollRef=useRef(null);
 
-  const [dataSource,setDataSource]=useState(""); // "cloud"|"local"|"new"
   useEffect(()=>{
-    dbLoad().then(({data,source})=>{
-      setD(migrate(data||JSON.parse(JSON.stringify(INIT))));
-      setDataSource(data?source:"new");
+    dbLoad().then(({data,src})=>{
+      setD(migrate(data||JSON.parse(JSON.stringify(INIT_D))));
       setLoading(false);
     });
   },[]);
 
-  // Save to localStorage immediately before tab closes
+  useEffect(()=>{
+    if(!D||loading)return;
+    setSaved(false);
+    if(saveTimer.current)clearTimeout(saveTimer.current);
+    saveTimer.current=setTimeout(()=>{
+      dbSave(D).then(ok=>{setSaved(true);setSaveOk(ok);});
+    },900);
+    return()=>clearTimeout(saveTimer.current);
+  },[D]);
+
   useEffect(()=>{
     const fn=()=>{if(D)try{localStorage.setItem(LKEY,JSON.stringify(D));}catch(e){}};
     window.addEventListener("beforeunload",fn);
     return()=>window.removeEventListener("beforeunload",fn);
   },[D]);
 
-  const [saveStatus,setSaveStatus]=useState("ok"); // "ok"|"saving"|"error"|"local"
-  useEffect(()=>{
-    if(!D||loading)return;
-    setSaveStatus("saving");
-    if(saveTimer.current)clearTimeout(saveTimer.current);
-    saveTimer.current=setTimeout(()=>{
-      dbSave(D).then(result=>{
-        setSaveStatus(result.ok?"ok":"local");
-        setSaved(result.ok);
-      });
-    },1000);
-    return()=>clearTimeout(saveTimer.current);
-  },[D]);
-
-  // Arrow computation — uses RAF to ensure DOM is painted before measuring
-  const computeArrowsFn=()=>{
-    if(!scrollRef.current||!D)return;
-    const sc=scrollRef.current,scr=sc.getBoundingClientRect();
-    setSvgDims({w:sc.scrollWidth,h:sc.scrollHeight});
-    const list=[];
-    for(const card of D.cards){
-      for(const depId of(card.deps||[])){
-        const dep=D.cards.find(c=>c.id===depId);
-        if(!dep||dep.rowId===card.rowId&&dep.colId===card.colId)continue;
-        const fe=cardRefs.current[depId],te=cardRefs.current[card.id];
-        if(!fe||!te)continue;
-        const fr=fe.getBoundingClientRect(),tr=te.getBoundingClientRect();
-        list.push({id:depId+">"+card.id,
-          x1:fr.right-scr.left+sc.scrollLeft, y1:fr.top+fr.height/2-scr.top+sc.scrollTop,
-          x2:tr.left-scr.left+sc.scrollLeft,  y2:tr.top+tr.height/2-scr.top+sc.scrollTop});
-      }
-    }
-    setArrows(list);
-  };
-  const recompute=()=>{if(showFlow)requestAnimationFrame(computeArrowsFn);else setArrows([]);};
-  useEffect(()=>{
-    if(!showFlow||!D||loading){setArrows([]);return;}
-    const id=requestAnimationFrame(computeArrowsFn);
-    return()=>cancelAnimationFrame(id);
-  },[showFlow,D,loading]);
-
   const mut=fn=>setD(d=>{const nd=JSON.parse(JSON.stringify(d));fn(nd);return nd;});
-  const cols=()=>D?.cols||DEFAULT_COLS;
 
-  // Card ops (editor only)
-  const openAdd=(rowId,colId)=>{
-    const c={id:uid(),rowId,colId,name:"Nueva entrada",desc:"",url:"",ownerId:"o1",tagIds:[],sw:0,ew:4,deps:[],subtasks:[],publicado:false,completado:false};
-    mut(d=>d.cards.push(c));setEditing(c);setPanel("card");
+  // Card ops
+  const addCard=(x,y,pillarId,rowId)=>{
+    const c={id:uid(),x,y,pillarId,rowId,name:"Nueva entrada",desc:"",url:"",
+      ownerId:"o1",tagIds:[],publicado:false,completado:false,steps:[],deps:[]};
+    mut(d=>d.cards.push(c));
+    setSelected(c.id);setPanel("card");
   };
-  const saveCard=c=>{mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});setEditing(null);setPanel(null);};
-  const deleteCard=id=>{mut(d=>{d.cards=d.cards.filter(c=>c.id!==id).map(c=>({...c,deps:(c.deps||[]).filter(x=>x!==id)}));});setEditing(null);setPanel(null);};
-  const addRow=()=>mut(d=>d.rows.push({id:uid(),name:"Nueva etapa"}));
-  const renameRow=(id,n)=>mut(d=>{const r=d.rows.find(r=>r.id===id);if(r)r.name=n;});
-  const deleteRow=id=>mut(d=>{d.rows=d.rows.filter(r=>r.id!==id);d.cards=d.cards.filter(c=>c.rowId!==id);});
-  const moveRow=(id,dir)=>mut(d=>{const i=d.rows.findIndex(r=>r.id===id),ni=i+dir;if(ni<0||ni>=d.rows.length)return;[d.rows[i],d.rows[ni]]=[d.rows[ni],d.rows[i]];});
+  const updateCard=c=>mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});
+  const deleteCard=id=>{
+    mut(d=>{d.cards=d.cards.filter(c=>c.id!==id).map(c=>({...c,deps:c.deps.filter(x=>x!==id)}));});
+    setSelected(null);setPanel(null);
+  };
+  const moveCard=(id,x,y)=>mut(d=>{const c=d.cards.find(c=>c.id===id);if(c){c.x=x;c.y=y;}});
 
-  const isVisible=c=>{if(!fOwners.length&&!fTags.length)return true;return(!fOwners.length||fOwners.includes(c.ownerId))&&(!fTags.length||fTags.some(t=>c.tagIds.includes(t)));};
-  const getRelated=id=>{if(!id||!D)return new Set();const s=new Set([id]),card=D.cards.find(c=>c.id===id);if(!card)return s;(card.deps||[]).forEach(d=>s.add(d));D.cards.forEach(c=>{if((c.deps||[]).includes(id))s.add(c.id);});return s;};
-  const related=getRelated(hlId);
-  const hasFilter=fOwners.length>0||fTags.length>0;
-  const lm=LAYER_META[layer];
-  const isEditor=layer===L.E;
+  const isVisible=c=>{
+    if(!fOwners.length&&!fTags.length)return true;
+    return(!fOwners.length||fOwners.includes(c.ownerId))&&
+           (!fTags.length||fTags.some(t=>c.tagIds.includes(t)));
+  };
+
   const canEdit=layer===L.E;
-  const isPublicView=layer===L.C;
+  const isPublic=layer===L.C;
 
   if(loading)return(
-    <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,background:"#0d1520"}}>
-      <div style={{fontSize:"10px",letterSpacing:"4px",color:"#3b82f6"}}>CARGANDO</div>
-      <div style={{fontSize:"12px",color:"#475569"}}>Conectando con la base de datos…</div>
+    <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
+      <div style={{fontSize:"9px",letterSpacing:"4px",color:"#388bfd"}}>CARGANDO</div>
     </div>
   );
+
+  const selectedCard=D.cards.find(c=>c.id===selected);
 
   return(
-    <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#16202e",overflow:"hidden"}}>
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      {/* Header */}
+      <Header D={D} layer={layer} saved={saved} saveOk={saveOk} canEdit={canEdit}
+        fOwners={fOwners} setFOwners={setFOwners} fTags={fTags} setFTags={setFTags}
+        onSettings={()=>setPanel(p=>p==="settings"?null:"settings")}
+        onLogin={()=>setLoginOpen(true)} onLogout={()=>{setLayer(L.C);setPanel(null);setSelected(null);}}
+        panelOpen={panel}/>
 
-      {/* ── Header */}
-      <div style={{background:"#0d1520",borderBottom:`2px solid ${lm.color}`,padding:"9px 16px",flexShrink:0,zIndex:50}}>
-        <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-          <div style={{marginRight:6}}>
-            <div style={{fontSize:"8px",letterSpacing:"4px",color:lm.hl,marginBottom:1}}>RRHH · TRANSFORMACIÓN</div>
-            <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",letterSpacing:"0.3px"}}>Plan de Mejora <span style={{fontSize:"10px",fontWeight:400,color:"#334155",letterSpacing:"1px"}}>v1.1</span></div>
-          </div>
-          {/* Layer badge */}
-          <span style={{fontSize:"9px",letterSpacing:"1.5px",fontWeight:700,padding:"3px 10px",borderRadius:20,background:lm.color+"33",color:lm.hl,border:`1px solid ${lm.color}`}}>{lm.label.toUpperCase()}</span>
-          <VD/>
-
-          {/* Filters — hidden in consulta */}
-          {!isPublicView&&<>
-            <span style={{fontSize:"8px",letterSpacing:"2px",color:"#334155"}}>OWNER</span>
-            {D.owners.filter(o=>o.id!=="o1").map(o=>{const a=fOwners.includes(o.id);return <Pill key={o.id} color={o.color} active={a} onClick={()=>setFOwners(f=>a?f.filter(x=>x!==o.id):[...f,o.id])}>{o.name}</Pill>;})}
-            <VD/>
-            <span style={{fontSize:"8px",letterSpacing:"2px",color:"#334155"}}>TAGS</span>
-            {D.tags.map(t=>{const a=fTags.includes(t.id);return <Pill key={t.id} color={t.color} active={a} onClick={()=>setFTags(f=>a?f.filter(x=>x!==t.id):[...f,t.id])}>{t.name}</Pill>;})}
-            {hasFilter&&<button onClick={()=>{setFOwners([]);setFTags([]);}} style={{...BTN,borderColor:"transparent",color:"#475569"}}>× limpiar</button>}
-          </>}
-
-          <div style={{flex:1}}/>
-
-          {canEdit&&<span style={{
-            fontSize:"9px",
-            color:saveStatus==="ok"?"#22c55e":saveStatus==="error"?"#ef4444":saveStatus==="local"?"#f59e0b":"#64748b",
-            minWidth:100,
-            display:"flex",alignItems:"center",gap:4,
-          }}>
-            {saveStatus==="ok"&&"☁ guardado"}
-            {saveStatus==="saving"&&"⏳ guardando…"}
-            {saveStatus==="local"&&<span onClick={()=>setDiagOpen(true)} style={{cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"}}>⚠ no llega a Supabase</span>}
-            {saveStatus==="error"&&<span onClick={()=>setDiagOpen(true)} style={{cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted"}}>✗ error al guardar</span>}
-          </span>}
-          {canEdit&&dataSource==="local"&&<span style={{fontSize:"8px",color:"#f59e0b",background:"#451a0320",border:"1px solid #92400e",padding:"2px 7px",borderRadius:3}}>⚠ cargado de copia local</span>}
-          {canEdit&&<button title="Guardar ahora en Supabase" onClick={()=>{setSaveStatus("saving");dbSave(D).then(r=>{setSaveStatus(r.ok?"ok":"local");setSaved(r.ok);});}} style={{...BTN,padding:"3px 8px",fontSize:"9px",borderColor:"#1e3a5f",color:"#334155"}}>💾</button>}
-          <button onClick={()=>setDiagOpen(true)} title="Diagnóstico de conexión" style={{...BTN,padding:"3px 8px",fontSize:"9px",borderColor:"#1e3a5f",color:"#334155"}}>🔍</button>
-          {!isPublicView&&<button onClick={()=>setShowFlow(f=>!f)} style={{...BTN,background:showFlow?"#1d4ed8":"transparent",color:showFlow?"#fff":"#94a3b8",borderColor:showFlow?"#3b82f6":"#334155"}}>{showFlow?"◈ Flujo ON":"◈ Flujo OFF"}</button>}
-          {canEdit&&<button onClick={()=>exportCSV(D)} style={BTN}>↓ CSV</button>}
-          {canEdit&&<button onClick={()=>setPanel(p=>p==="settings"?null:"settings")} style={{...BTN,borderColor:panel==="settings"?"#3b82f6":"#334155",color:panel==="settings"?"#60a5fa":"#94a3b8"}}>⚙ Config</button>}
-          {/* Acceder / Salir */}
-          {layer===L.C
-            ?<button onClick={()=>setLoginOpen(true)} style={{...BTN,borderColor:"#334155",color:"#94a3b8"}}>Acceder →</button>
-            :<button onClick={()=>{setLayer(L.C);setPanel(null);setShowFlow(false);}} style={{...BTN,borderColor:"#334155",color:"#64748b"}}>← Salir</button>
-          }
-        </div>
-      </div>
-
-      {/* ── Body */}
+      {/* Body */}
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
-        <div ref={scrollRef} style={{flex:1,overflow:"auto",position:"relative"}} onScroll={()=>{if(showFlow)recompute();}}>
-          {D&&<Matrix D={D} cols={cols()} layer={layer} isVisible={isVisible} hasFilter={hasFilter}
-            hlId={hlId} related={related}
-            onAdd={openAdd}
-            onEdit={c=>{if(layer===L.C){setEditing(c);setPanel("consulta-card");}else{setEditing({...c});setPanel("card");}}}
-            onHl={id=>setHlId(id===hlId?null:id)}
-            onProcess={c=>setProcessCard({...c})}
-            onRenameRow={renameRow} onDeleteRow={deleteRow} onMoveRow={moveRow} onAddRow={addRow}
-            cardRefs={cardRefs}/>}
-          {/* SVG arrows */}
-          {showFlow&&arrows.length>0&&(
-            <svg style={{position:"absolute",top:0,left:0,pointerEvents:"none",zIndex:88}} width={svgDims.w} height={svgDims.h}>
-              <defs><marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,1.5 L9,5 L0,8.5 Z" fill="#60a5fa"/></marker></defs>
-              {arrows.map(a=>{
-            const dx=a.x2-a.x1,dy=a.y2-a.y1;
-            const pad=Math.min(28,Math.max(14,dx*0.2));
-            const mx=a.x1+pad;
-            const path=Math.abs(dy)<4
-              ?`M${a.x1},${a.y1} H${a.x2}`
-              :`M${a.x1},${a.y1} H${mx} V${a.y2} H${a.x2}`;
-            return <path key={a.id} d={path} stroke="#60a5fa" strokeWidth="1.8" fill="none" strokeOpacity="0.75" markerEnd="url(#ah)"/>;
-          })}}
-            </svg>
-          )}
-        </div>
+        {/* Canvas */}
+        <Canvas D={D} layer={layer} canEdit={canEdit} isPublic={isPublic}
+          selected={selected} setSelected={id=>{setSelected(id);if(id)setPanel("card");else setPanel(null);}}
+          isVisible={isVisible} fOwners={fOwners} fTags={fTags}
+          onMoveCard={moveCard} onAddCard={addCard}
+          onDoubleClickCard={id=>{setSelected(id);setPanel("card");}}/>
 
-        {/* Side panels */}
-        {panel==="card"         &&editing&&<CardPanel   card={editing} D={D} cols={cols()} onSave={saveCard} onDelete={()=>deleteCard(editing.id)} onClose={()=>{setPanel(null);setEditing(null);}}/>}
-        {panel==="consulta-card"&&editing&&<ConsultaPanel card={editing} D={D} cols={cols()} onClose={()=>{setPanel(null);setEditing(null);}}/>}
-        {panel==="settings"                &&<SettingsPanel D={D} mut={mut} onClose={()=>setPanel(null)}/>}
+        {/* Right panels */}
+        {panel==="card"&&selectedCard&&(
+          <CardPanel card={selectedCard} D={D} canEdit={canEdit} isPublic={isPublic}
+            onUpdate={updateCard} onDelete={()=>deleteCard(selectedCard.id)}
+            onClose={()=>{setPanel(null);setSelected(null);}}/>
+        )}
+        {panel==="settings"&&canEdit&&(
+          <SettingsPanel D={D} mut={mut} onClose={()=>setPanel(null)}/>
+        )}
       </div>
 
-      {/* Login modal */}
       {loginOpen&&<LoginModal D={D} onLogin={role=>{setLayer(role);setLoginOpen(false);}} onClose={()=>setLoginOpen(false)}/>}
-      {diagOpen&&<DiagModal running={diagRunning} result={diagResult} onRun={runDiag} onClose={()=>{setDiagOpen(false);setDiagResult(null);}}/>}
-      {processCard&&<ProcessModal
-        card={processCard} D={D} cols={cols()}
-        onClose={()=>setProcessCard(null)}
-        onSaveCard={c=>{mut(d=>{const i=d.cards.findIndex(x=>x.id===c.id);if(i>=0)d.cards[i]=c;});}}
-        onSaveBridges={nb=>{mut(d=>{d.bridges=nb;});}}
-      />}
     </div>
   );
 }
 
-
-
-// ────────────────────────────────────────────────────────────────
-// PROCESS MODAL — DAG level-based flow view
-// ────────────────────────────────────────────────────────────────
-const STEP_STATUS=[
-  {id:"pendiente", label:"Pendiente",  color:"#475569", bg:"#1e293b", dot:"#475569"},
-  {id:"en_curso",  label:"En curso",   color:"#1d4ed8", bg:"#0f2240", dot:"#3b82f6"},
-  {id:"bloqueado", label:"Bloqueado",  color:"#dc2626", bg:"#2d0a0a", dot:"#ef4444"},
-  {id:"completado",label:"Completado", color:"#16a34a", bg:"#052e18", dot:"#22c55e"},
-];
-const nextStatus=id=>{const i=STEP_STATUS.findIndex(s=>s.id===id);return STEP_STATUS[(i+1)%STEP_STATUS.length].id;};
-const uid2=()=>Math.random().toString(36).slice(2,9);
-
-function getConnectedComponent(startCard,allCards){
-  const adj={};
-  for(const c of allCards)adj[c.id]=new Set();
-  for(const c of allCards)for(const d of(c.deps||[]))if(adj[d]){adj[c.id].add(d);adj[d].add(c.id);}
-  const vis=new Set(),q=[startCard.id];
-  while(q.length){const id=q.shift();if(vis.has(id))continue;vis.add(id);(adj[id]||new Set()).forEach(n=>q.push(n));}
-  return allCards.filter(c=>vis.has(c.id));
+// ── Header ────────────────────────────────────────────────────────────────────
+function Header({D,layer,saved,saveOk,canEdit,fOwners,setFOwners,fTags,setFTags,onSettings,onLogin,onLogout,panelOpen}){
+  const lc=LAYER_COLORS[layer];
+  const lLabel={[L.C]:"Público",[L.S]:"Seguimiento",[L.E]:"Editor"}[layer];
+  return(
+    <div style={{background:"#161b22",borderBottom:"1px solid #21262d",padding:"8px 16px",
+      flexShrink:0,zIndex:100,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+      <div style={{marginRight:8}}>
+        <div style={{fontSize:"8px",letterSpacing:"4px",color:"#388bfd",marginBottom:1}}>RRHH · CANVAS</div>
+        <div style={{fontSize:"16px",fontWeight:700,color:"#e6edf3",lineHeight:1}}>
+          Plan de Mejora <span style={{fontSize:"9px",color:"#484f58",fontWeight:400,letterSpacing:"1px"}}>v2.0</span>
+        </div>
+      </div>
+      <span style={{fontSize:"9px",padding:"2px 9px",borderRadius:20,background:lc+"22",color:lc,border:`1px solid ${lc}55`,letterSpacing:"1px",fontWeight:600}}>{lLabel.toUpperCase()}</span>
+      <div style={{width:1,height:24,background:"#21262d",margin:"0 4px"}}/>
+      {/* Filters */}
+      <span style={{fontSize:"8px",letterSpacing:"1px",color:"#484f58"}}>OWNER</span>
+      {D.owners.filter(o=>o.id!=="o1").map(o=>{
+        const a=fOwners.includes(o.id);
+        return <Chip key={o.id} color={o.color} active={a} onClick={()=>setFOwners(f=>a?f.filter(x=>x!==o.id):[...f,o.id])}>{o.name}</Chip>;
+      })}
+      <div style={{width:1,height:24,background:"#21262d",margin:"0 4px"}}/>
+      <span style={{fontSize:"8px",letterSpacing:"1px",color:"#484f58"}}>TAGS</span>
+      {D.tags.map(t=>{
+        const a=fTags.includes(t.id);
+        return <Chip key={t.id} color={t.color} active={a} onClick={()=>setFTags(f=>a?f.filter(x=>x!==t.id):[...f,t.id])}>{t.name}</Chip>;
+      })}
+      {(fOwners.length>0||fTags.length>0)&&<button onClick={()=>{setFOwners([]);setFTags([]);}} style={{...BTN,color:"#484f58",borderColor:"transparent",fontSize:"10px"}}>× limpiar</button>}
+      <div style={{flex:1}}/>
+      {canEdit&&<span style={{fontSize:"9px",color:saved?(saveOk?"#3fb950":"#f0883e"):"#f0883e",minWidth:90}}>
+        {saved?(saveOk?"☁ guardado":"⚠ solo local"):"⏳ guardando…"}
+      </span>}
+      {canEdit&&<button onClick={onSettings} style={{...BTN,borderColor:panelOpen==="settings"?"#388bfd":"#30363d",color:panelOpen==="settings"?"#388bfd":"#8b949e"}}>⚙ Config</button>}
+      {layer===L.C
+        ?<button onClick={onLogin} style={{...BTN,borderColor:"#388bfd",color:"#388bfd"}}>Acceder →</button>
+        :<button onClick={onLogout} style={{...BTN,color:"#484f58"}}>← Salir</button>
+      }
+    </div>
+  );
 }
 
-// Assign each card a level = longest path from any root within component
-function computeLevels(cards){
-  const ids=new Set(cards.map(c=>c.id));
-  const lvl={};
-  cards.forEach(c=>lvl[c.id]=0);
-  let changed=true;
-  while(changed){
-    changed=false;
-    for(const c of cards)
-      for(const d of(c.deps||[]))
-        if(ids.has(d)&&lvl[d]>=lvl[c.id]){lvl[c.id]=lvl[d]+1;changed=true;}
-  }
-  return lvl;
-}
+// ── Canvas ─────────────────────────────────────────────────────────────────────
+function Canvas({D,layer,canEdit,isPublic,selected,setSelected,isVisible,fOwners,fTags,onMoveCard,onAddCard,onDoubleClickCard}){
+  const svgRef=useRef(null);
+  const containerRef=useRef(null);
+  const [vp,setVp]=useState({x:ROW_LABEL_W,y:0,scale:1}); // viewport: pan + zoom
+  const dragging=useRef(null); // {type:"pan"|"card", id?, startX,startY,origX,origY,cardOrigX,cardOrigY}
+  const [size,setSize]=useState({w:1200,h:800});
 
-// Group cards by level, sort within level by name for stability
-function groupByLevel(cards){
-  const lvl=computeLevels(cards);
-  const maxL=Math.max(...Object.values(lvl));
-  const cols=[];
-  for(let i=0;i<=maxL;i++)
-    cols.push(cards.filter(c=>lvl[c.id]===i).sort((a,b)=>a.name.localeCompare(b.name)));
-  return cols;
-}
-
-function ProcessModal({card,D,cols,onClose,onSaveCard,onSaveBridges}){
-  const [bridges,setBridges]=useState(()=>JSON.parse(JSON.stringify(D.bridges||{})));
-  const [editingStep,setEditingStep]=useState(null);
-
-  const component=getConnectedComponent(card,D.cards);
-  const isSingle=component.length===1;
-  const colGroups=groupByLevel(component); // array of arrays
-
-  const allSteps=[
-    ...component.flatMap(c=>(c.steps||[])),
-    ...Object.values(bridges).flat()
-  ];
-  const done=allSteps.filter(s=>s.status==="completado").length;
-  const blocked=allSteps.filter(s=>s.status==="bloqueado").length;
-  const pct=allSteps.length?Math.round((done/allSteps.length)*100):0;
-
-  const saveBridges=nb=>{setBridges(nb);onSaveBridges(nb);};
-
-  const updateCardStep=(cardId,stepId,k,v)=>{
-    const c=D.cards.find(x=>x.id===cardId);if(!c)return;
-    onSaveCard({...c,steps:(c.steps||[]).map(s=>s.id===stepId?{...s,[k]:v}:s)});
-  };
-  const addCardStep=cardId=>{
-    const c=D.cards.find(x=>x.id===cardId);if(!c)return;
-    const ns={id:uid2(),name:"Nuevo paso",desc:"",ownerId:c.ownerId||"o1",tagIds:[],status:"pendiente"};
-    onSaveCard({...c,steps:[...(c.steps||[]),ns]});
-    setEditingStep({nodeId:cardId,stepId:ns.id});
-  };
-  const deleteCardStep=(cardId,stepId)=>{
-    const c=D.cards.find(x=>x.id===cardId);if(!c)return;
-    onSaveCard({...c,steps:(c.steps||[]).filter(s=>s.id!==stepId)});
-    if(editingStep?.stepId===stepId)setEditingStep(null);
-  };
-  const getBKey=(a,b)=>a.id+":"+b.id;
-  const updateBStep=(key,stepId,k,v)=>saveBridges({...bridges,[key]:(bridges[key]||[]).map(s=>s.id===stepId?{...s,[k]:v}:s)});
-  const addBStep=(key,refCard)=>{
-    const ns={id:uid2(),name:"Paso intermedio",desc:"",ownerId:refCard.ownerId||"o1",tagIds:[],status:"pendiente"};
-    saveBridges({...bridges,[key]:[...(bridges[key]||[]),ns]});
-    setEditingStep({bridgeKey:key,stepId:ns.id});
-  };
-  const deleteBStep=(key,stepId)=>{
-    saveBridges({...bridges,[key]:(bridges[key]||[]).filter(s=>s.id!==stepId)});
-    if(editingStep?.stepId===stepId)setEditingStep(null);
-  };
-
-  // Get direct predecessors of a card within component
-  const compIds=new Set(component.map(c=>c.id));
-  const predecessors=c=>component.filter(x=>(c.deps||[]).includes(x.id));
-  const successors=c=>component.filter(x=>(x.deps||[]).includes(c.id));
-
-  useEffect(()=>{
-    const fn=e=>{if(e.key==="Escape")onClose();};
-    window.addEventListener("keydown",fn);
-    return()=>window.removeEventListener("keydown",fn);
+  // Measure container
+  useLayoutEffect(()=>{
+    if(!containerRef.current)return;
+    const ro=new ResizeObserver(()=>{
+      const r=containerRef.current.getBoundingClientRect();
+      setSize({w:r.width,h:r.height});
+    });
+    ro.observe(containerRef.current);
+    setSize({w:containerRef.current.clientWidth,h:containerRef.current.clientHeight});
+    return()=>ro.disconnect();
   },[]);
 
+  // Canvas dimensions
+  const totalH=D.rows.reduce((s,r)=>Math.max(s,r.y+r.h),200)+200;
+  const totalW=ROW_LABEL_W+D.pillars.length*PILLAR_W+200;
+
+  // Pointer events
+  const onPointerDown=e=>{
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const t=e.target;
+    // Check if clicking on a card
+    const cardEl=t.closest('[data-cardid]');
+    if(cardEl&&canEdit){
+      const id=cardEl.dataset.cardid;
+      const card=D.cards.find(c=>c.id===id);
+      if(!card)return;
+      dragging.current={type:"card",id,startX:e.clientX,startY:e.clientY,cardOrigX:card.x,cardOrigY:card.y};
+      setSelected(id);
+      return;
+    }
+    // Pan
+    dragging.current={type:"pan",startX:e.clientX,startY:e.clientY,origX:vp.x,origY:vp.y};
+  };
+  const onPointerMove=e=>{
+    if(!dragging.current)return;
+    const dx=e.clientX-dragging.current.startX;
+    const dy=e.clientY-dragging.current.startY;
+    if(dragging.current.type==="pan"){
+      setVp(v=>({...v,x:dragging.current.origX+dx,y:dragging.current.origY+dy}));
+    } else if(dragging.current.type==="card"){
+      const nx=dragging.current.cardOrigX+dx/vp.scale;
+      const ny=dragging.current.cardOrigY+dy/vp.scale;
+      onMoveCard(dragging.current.id,nx,ny);
+    }
+  };
+  const onPointerUp=e=>{
+    dragging.current=null;
+  };
+  const onWheel=e=>{
+    e.preventDefault();
+    const factor=e.deltaY<0?1.1:0.9;
+    const rect=containerRef.current.getBoundingClientRect();
+    const mx=e.clientX-rect.left;
+    const my=e.clientY-rect.top;
+    setVp(v=>{
+      const ns=Math.min(2,Math.max(0.2,v.scale*factor));
+      const ratio=ns/v.scale;
+      return{scale:ns,x:mx-(mx-v.x)*ratio,y:my-(my-v.y)*ratio};
+    });
+  };
+
+  // Double-click to add card
+  const onDblClick=e=>{
+    if(!canEdit)return;
+    const t=e.target;
+    if(t.closest('[data-cardid]'))return;
+    const rect=containerRef.current.getBoundingClientRect();
+    const cx=(e.clientX-rect.left-vp.x)/vp.scale;
+    const cy=(e.clientY-rect.top-vp.y)/vp.scale;
+    // Detect pillar and row
+    const pillarIdx=Math.floor((cx-ROW_LABEL_W)/PILLAR_W);
+    const pillar=D.pillars[pillarIdx];
+    const row=D.rows.find(r=>cy>=r.y&&cy<r.y+r.h);
+    onAddCard(cx,cy,pillar?.id,row?.id);
+  };
+
+  // Visible cards
+  const visibleCards=isPublic?D.cards.filter(c=>c.publicado):D.cards;
+
+  // Bezier arrow between two cards
+  const getArrow=(fromCard,toCard)=>{
+    const fx=fromCard.x+CARD_W;
+    const fy=fromCard.y+CARD_MIN_H/2;
+    const tx=toCard.x;
+    const ty=toCard.y+CARD_MIN_H/2;
+    const cx1=fx+Math.abs(tx-fx)*0.5;
+    const cx2=tx-Math.abs(tx-fx)*0.5;
+    return `M${fx},${fy} C${cx1},${fy} ${cx2},${ty} ${tx},${ty}`;
+  };
+
   return(
-    <div className="process-modal">
-      {/* Top bar */}
-      <div style={{background:"#070d14",borderBottom:"2px solid #1e3a5f",padding:"12px 24px",flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",gap:16}}>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:"9px",letterSpacing:"3px",color:"#3b82f6",marginBottom:3}}>FLUJO DE PROCESO · {component.length} ENTRADA{component.length>1?"S":""}</div>
-            <div style={{fontSize:"18px",fontWeight:800,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{card.name}</div>
-          </div>
-          {allSteps.length>0&&(
-            <div style={{flexShrink:0,textAlign:"right"}}>
-              {blocked>0&&<div style={{fontSize:"10px",fontWeight:700,color:"#ef4444",background:"#2d0a0a",padding:"3px 10px",borderRadius:10,border:"1px solid #7f1d1d",marginBottom:4,display:"inline-block"}}>⚠ {blocked} bloqueado{blocked>1?"s":""}</div>}
-              <div style={{fontSize:"22px",fontWeight:800,color:pct===100?"#22c55e":blocked>0?"#ef4444":"#60a5fa",lineHeight:1}}>{pct}%</div>
-              <div style={{fontSize:"9px",color:"#334155"}}>{done}/{allSteps.length} pasos</div>
-              <div style={{width:80,height:4,background:"#1e293b",borderRadius:2,marginTop:4,marginLeft:"auto"}}>
-                <div style={{width:pct+"%",height:"100%",background:pct===100?"#22c55e":blocked>0?"#ef4444":"#3b82f6",borderRadius:2,transition:"width .3s"}}/>
-              </div>
-            </div>
-          )}
-          <button onClick={onClose} style={{background:"none",border:"1px solid #334155",color:"#64748b",cursor:"pointer",padding:"8px 14px",borderRadius:4,fontSize:"16px",lineHeight:1,flexShrink:0}}>✕</button>
-        </div>
-      </div>
+    <div ref={containerRef} style={{flex:1,overflow:"hidden",position:"relative",cursor:"grab",background:"#0d1117"}}
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+      onWheel={onWheel} onDoubleClick={onDblClick}>
 
-      {/* Main flow — horizontal columns */}
-      <div style={{flex:1,overflow:"auto",padding:"28px 32px 24px"}}>
-        <div style={{display:"flex",alignItems:"flex-start",gap:0,minWidth:"max-content"}}>
-          {colGroups.map((colCards,ci)=>{
-            const isLastCol=ci===colGroups.length-1;
-            const prevColCards=ci>0?colGroups[ci-1]:[];
+      {/* SVG Canvas */}
+      <svg style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",overflow:"visible"}}>
+        <g transform={`translate(${vp.x},${vp.y}) scale(${vp.scale})`}>
 
-            // Collect all edges from prevCol → this col
-            const edgesIn=[]; // {from: card, to: card}
-            for(const tc of colCards)
-              for(const pc of prevColCards)
-                if((tc.deps||[]).includes(pc.id)) edgesIn.push({from:pc,to:tc});
+          {/* Row bands */}
+          {D.rows.map((row,ri)=>(
+            <g key={row.id}>
+              <rect x={0} y={row.y} width={totalW} height={row.h}
+                fill={ri%2===0?"#0d1117":"#111720"} opacity={1}/>
+              {/* Row label */}
+              <rect x={0} y={row.y} width={ROW_LABEL_W-1} height={row.h} fill="#161b22"/>
+              <line x1={ROW_LABEL_W-1} y1={row.y} x2={ROW_LABEL_W-1} y2={row.y+row.h} stroke="#21262d" strokeWidth={1}/>
+              <text x={ROW_LABEL_W/2} y={row.y+row.h/2} textAnchor="middle" dominantBaseline="middle"
+                fontSize={11} fontWeight={600} fill="#484f58" style={{userSelect:"none"}}>
+                {row.label}
+              </text>
+              {/* Row bottom border */}
+              <line x1={0} y1={row.y+row.h} x2={totalW} y2={row.y+row.h} stroke="#21262d" strokeWidth={1}/>
+            </g>
+          ))}
 
+          {/* Pillar zones */}
+          {D.pillars.map((p,pi)=>{
+            const px=ROW_LABEL_W+pi*PILLAR_W;
             return(
-              <div key={ci} style={{display:"flex",alignItems:"flex-start",flexShrink:0}}>
-
-                {/* Bridge + arrow zone between ci-1 and ci */}
-                {ci>0&&(
-                  <BridgeZone
-                    edges={edgesIn} bridges={bridges} D={D}
-                    editingStep={editingStep}
-                    onAddStep={(key,refCard)=>addBStep(key,refCard)}
-                    onUpdateStep={(key,sid,k,v)=>updateBStep(key,sid,k,v)}
-                    onDeleteStep={(key,sid)=>deleteBStep(key,sid)}
-                    onEditToggle={e=>setEditingStep(editingStep?.stepId===e.stepId&&editingStep?.bridgeKey===e.bridgeKey?null:e)}
-                  />
-                )}
-
-                {/* Column of cards at this level */}
-                <div style={{display:"flex",flexDirection:"column",gap:16,flexShrink:0,width:210}}>
-                  {colCards.map(c=>{
-                    const col2=cols.find(x=>x.id===c.colId);
-                    const row=D.rows.find(r=>r.id===c.rowId);
-                    const cardSteps=c.steps||[];
-                    const cardBlocked=cardSteps.some(s=>s.status==="bloqueado");
-                    const cardDone=cardSteps.length>0&&cardSteps.every(s=>s.status==="completado");
-                    const preds=predecessors(c);
-                    const succs=successors(c);
-                    const isOrigin=c.id===card.id;
-
-                    return(
-                      <div key={c.id} style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
-                        {/* Card box */}
-                        <div style={{
-                          width:"100%",
-                          background:cardBlocked?"#1a0606":cardDone?"#071f12":"#1c2d42",
-                          border:`2px solid ${cardBlocked?"#dc2626":cardDone?"#22c55e":isOrigin?"#3b82f6":col2?.color||"#334155"}`,
-                          borderRadius:8,padding:"12px",
-                          boxShadow:isOrigin?"0 0 16px #3b82f630":cardBlocked?"0 0 16px #dc262625":"none",
-                        }}>
-                          <div style={{fontSize:"8px",letterSpacing:"1.5px",color:col2?.hl||"#60a5fa",marginBottom:3,fontWeight:600}}>{row?.name}</div>
-                          <div style={{fontSize:"13px",fontWeight:800,color:"#f1f5f9",lineHeight:1.3,marginBottom:7}}>{c.name}</div>
-                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:4}}>
-                            <span style={{fontSize:"9px",padding:"2px 7px",borderRadius:10,background:col2?.color||"#1e293b",color:col2?.hl||"#60a5fa",fontWeight:600}}>{col2?.label}</span>
-                            {cardSteps.length>0&&<span style={{fontSize:"9px",color:cardDone?"#22c55e":cardBlocked?"#ef4444":"#475569",fontWeight:600}}>{cardSteps.filter(s=>s.status==="completado").length}/{cardSteps.length}</span>}
-                          </div>
-                          {/* Predecessor labels when branching */}
-                          {preds.length>1&&(
-                            <div style={{marginTop:7,paddingTop:5,borderTop:"1px solid #1e3a5f"}}>
-                              <div style={{fontSize:"8px",color:"#334155",marginBottom:3}}>Depende de:</div>
-                              {preds.map(p=><div key={p.id} style={{fontSize:"8px",color:"#475569",display:"flex",alignItems:"center",gap:4}}><span style={{color:"#1e3a5f"}}>←</span>{p.name}</div>)}
-                            </div>
-                          )}
-                          {/* Successor labels when this card fans out */}
-                          {succs.length>1&&(
-                            <div style={{marginTop:5}}>
-                              <div style={{fontSize:"8px",color:"#334155",marginBottom:2}}>Continúa en:</div>
-                              {succs.map(s=><div key={s.id} style={{fontSize:"8px",color:"#475569",display:"flex",alignItems:"center",gap:4}}><span style={{color:"#1e3a5f"}}>→</span>{s.name}</div>)}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Steps below card */}
-                        {cardSteps.length>0&&<div style={{width:2,height:14,background:"#1e3a5f",flexShrink:0}}/>}
-                        {cardSteps.length>0&&(
-                          <div style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
-                            {cardSteps.map((step,si)=>{
-                              const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
-                              const isEd=editingStep?.nodeId===c.id&&editingStep?.stepId===step.id;
-                              return(
-                                <div key={step.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
-                                  <StepCard step={step} st={st} isEditing={isEd} D={D}
-                                    onStatusClick={()=>updateCardStep(c.id,step.id,"status",nextStatus(step.status))}
-                                    onEditToggle={()=>setEditingStep(isEd?null:{nodeId:c.id,stepId:step.id})}
-                                    onChange={(k,v)=>updateCardStep(c.id,step.id,k,v)}
-                                    onDelete={()=>{if(window.confirm("¿Eliminar?"))deleteCardStep(c.id,step.id);}}/>
-                                  {si<cardSteps.length-1&&<div style={{width:2,height:8,background:"#1e3a5f"}}/>}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        <button onClick={()=>addCardStep(c.id)}
-                          style={{marginTop:8,background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"4px 0",borderRadius:4,fontSize:"9px",width:"100%",fontFamily:"inherit",transition:"all .15s"}}
-                          onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
-                          onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
-                          + paso
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <g key={p.id}>
+                {/* Pillar color overlay */}
+                <rect x={px} y={0} width={PILLAR_W} height={totalH}
+                  fill={p.color} opacity={0.4}/>
+                {/* Pillar right border */}
+                <line x1={px+PILLAR_W} y1={0} x2={px+PILLAR_W} y2={totalH} stroke={p.border} strokeWidth={1}/>
+                {/* Pillar header */}
+                <rect x={px} y={0} width={PILLAR_W} height={44} fill={p.color}/>
+                <line x1={px} y1={44} x2={px+PILLAR_W} y2={44} stroke={p.border} strokeWidth={1.5}/>
+                <text x={px+PILLAR_W/2} y={22} textAnchor="middle" dominantBaseline="middle"
+                  fontSize={12} fontWeight={700} fill={p.hl} style={{userSelect:"none",letterSpacing:"0.5px"}}>
+                  {p.label}
+                </text>
+              </g>
             );
           })}
-        </div>
-      </div>
 
-      {/* Bottom legend */}
-      <div style={{background:"#070d14",borderTop:"1px solid #1e2d40",padding:"8px 24px",flexShrink:0,display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
-        <span style={{fontSize:"9px",color:"#1e3a5f"}}>Clic en estado para cambiarlo · Clic en texto para editar · ESC cerrar</span>
-        <div style={{flex:1}}/>
-        {STEP_STATUS.map(s=>(
-          <span key={s.id} style={{fontSize:"9px",color:s.dot,display:"flex",alignItems:"center",gap:4}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:s.dot,display:"inline-block"}}/>
-            {s.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// BridgeZone — connector + intermediate steps between two level-columns
-function BridgeZone({edges,bridges,D,editingStep,onAddStep,onUpdateStep,onDeleteStep,onEditToggle}){
-  if(!edges.length)return(
-    <div style={{display:"flex",alignItems:"center",height:60,flexShrink:0}}>
-      <div style={{width:20,height:2,background:"#1e3a5f"}}/>
-      <div style={{width:0,height:0,borderTop:"5px solid transparent",borderBottom:"5px solid transparent",borderLeft:"8px solid #1e3a5f"}}/>
-    </div>
-  );
-
-  return(
-    <div style={{display:"flex",flexDirection:"column",justifyContent:"center",gap:12,padding:"0 8px",flexShrink:0,minWidth:140,maxWidth:180}}>
-      {edges.map(({from,to})=>{
-        const key=from.id+":"+to.id;
-        const bSteps=bridges[key]||[];
-        return(
-          <div key={key} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:0}}>
-            {/* Edge label */}
-            <div style={{fontSize:"8px",color:"#253347",marginBottom:4,textAlign:"center",lineHeight:1.3}}>
-              <span style={{color:"#334155"}}>{from.name.length>16?from.name.slice(0,14)+"…":from.name}</span>
-              <span style={{color:"#1e3a5f"}}> → </span>
-              <span style={{color:"#334155"}}>{to.name.length>16?to.name.slice(0,14)+"…":to.name}</span>
-            </div>
-            {/* Arrow line */}
-            <div style={{display:"flex",alignItems:"center",width:"100%",marginBottom:bSteps.length?6:0}}>
-              <div style={{flex:1,height:2,background:"#1e3a5f"}}/>
-              {!bSteps.length&&<div style={{width:0,height:0,borderTop:"4px solid transparent",borderBottom:"4px solid transparent",borderLeft:"6px solid #1e3a5f"}}/>}
-            </div>
-            {/* Bridge steps */}
-            {bSteps.map((step,bi)=>{
-              const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
-              const isEd=editingStep?.bridgeKey===key&&editingStep?.stepId===step.id;
-              return(
-                <div key={step.id} style={{width:"100%",display:"flex",flexDirection:"column",alignItems:"center"}}>
-                  {bi>0&&<div style={{width:2,height:6,background:"#1e3a5f"}}/>}
-                  <StepCard step={step} st={st} isEditing={isEd} D={D} isBridge
-                    onStatusClick={()=>onUpdateStep(key,step.id,"status",nextStatus(step.status))}
-                    onEditToggle={()=>onEditToggle({bridgeKey:key,stepId:step.id})}
-                    onChange={(k,v)=>onUpdateStep(key,step.id,k,v)}
-                    onDelete={()=>{if(window.confirm("¿Eliminar?"))onDeleteStep(key,step.id);}}/>
-                </div>
-              );
-            })}
-            {/* Arrow end after bridge steps */}
-            {bSteps.length>0&&(
-              <div style={{display:"flex",alignItems:"center",width:"100%",marginTop:6}}>
-                <div style={{flex:1,height:2,background:"#1e3a5f"}}/>
-                <div style={{width:0,height:0,borderTop:"4px solid transparent",borderBottom:"4px solid transparent",borderLeft:"6px solid #1e3a5f"}}/>
-              </div>
-            )}
-            <button onClick={()=>onAddStep(key,from)}
-              style={{marginTop:5,background:"none",border:"1px dashed #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"3px 0",borderRadius:3,fontSize:"8px",width:"100%",fontFamily:"inherit",transition:"all .15s"}}
-              onMouseEnter={e=>{e.target.style.borderColor="#3b82f6";e.target.style.color="#3b82f6";}}
-              onMouseLeave={e=>{e.target.style.borderColor="#1e3a5f";e.target.style.color="#1e3a5f";}}>
-              + intermedio
-            </button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// StepCard — shared component
-function StepCard({step,st,isEditing,D,isBridge,onStatusClick,onEditToggle,onChange,onDelete}){
-  const owner=D.owners.find(o=>o.id===step.ownerId)||D.owners[0];
-  const tags=D.tags.filter(t=>step.tagIds.includes(t.id));
-  return(
-    <div style={{
-      width:"100%",
-      background:step.status==="bloqueado"?"#1a0606":isBridge?"#111d30":"#162030",
-      border:`1.5px solid ${isEditing?"#3b82f6":step.status==="bloqueado"?"#dc2626":isBridge?"#1e3a5f":"#1e2d40"}`,
-      borderLeft:`3px solid ${st.color}`,
-      borderRadius:6,padding:"9px",
-      boxShadow:step.status==="bloqueado"?"0 0 10px #dc262622":isEditing?"0 0 8px #3b82f618":"none",
-    }}>
-      <button onClick={onStatusClick}
-        style={{background:st.bg,border:`1px solid ${st.color}`,color:st.color,cursor:"pointer",padding:"2px 7px",borderRadius:10,fontSize:"8px",fontWeight:700,fontFamily:"inherit",marginBottom:6,display:"block"}}>
-        {st.label}
-      </button>
-      {isEditing
-        ?<input value={step.name} onChange={e=>onChange("name",e.target.value)} style={{...INP,fontSize:"11px",fontWeight:600,marginBottom:5,padding:"4px 6px"}}/>
-        :<div onClick={onEditToggle} style={{fontSize:"11px",fontWeight:600,color:"#e2e8f0",lineHeight:1.3,marginBottom:4,cursor:"text",minHeight:26}}>{step.name}</div>
-      }
-      {isEditing
-        ?<textarea value={step.desc||""} onChange={e=>onChange("desc",e.target.value)} rows={2}
-            placeholder="Descripción…" style={{...INP,fontSize:"10px",resize:"none",marginBottom:5,lineHeight:1.4,padding:"4px 6px"}}/>
-        :step.desc&&<div onClick={onEditToggle} style={{fontSize:"10px",color:"#475569",lineHeight:1.4,marginBottom:4,cursor:"text"}}>{step.desc}</div>
-      }
-      {isEditing
-        ?<select value={step.ownerId||""} onChange={e=>onChange("ownerId",e.target.value)}
-            style={{...INP,fontSize:"10px",padding:"3px 5px",marginBottom:5,color:owner.color}}>
-            {D.owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
-          </select>
-        :<div style={{fontSize:"9px",color:owner.color,fontWeight:600,marginBottom:4,display:"flex",alignItems:"center",gap:4}}>
-            <div style={{width:5,height:5,borderRadius:"50%",background:owner.color,flexShrink:0}}/>
-            {owner.name}
-          </div>
-      }
-      {isEditing&&(
-        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5}}>
-          {D.tags.map(t=>{const sel=step.tagIds.includes(t.id);return(
-            <button key={t.id} onClick={()=>onChange("tagIds",sel?step.tagIds.filter(x=>x!==t.id):[...step.tagIds,t.id])}
-              style={{fontSize:"8px",padding:"1px 5px",borderRadius:10,border:`1px solid ${t.color}`,background:sel?t.color:"transparent",color:sel?"#fff":t.color,cursor:"pointer",fontFamily:"inherit"}}>{t.name}</button>
-          );})}
-        </div>
-      )}
-      {!isEditing&&tags.length>0&&(
-        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:4}}>
-          {tags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"1px 5px",borderRadius:10,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
-        </div>
-      )}
-      <div style={{display:"flex",gap:4,marginTop:5}}>
-        <button onClick={onEditToggle}
-          style={{flex:1,background:"none",border:"1px solid #1e3a5f",color:isEditing?"#3b82f6":"#334155",cursor:"pointer",padding:"3px",borderRadius:3,fontSize:"9px",fontFamily:"inherit"}}>
-          {isEditing?"✓ Listo":"✏"}
-        </button>
-        <button onClick={onDelete}
-          style={{background:"none",border:"1px solid #1e2d40",color:"#3f1010",cursor:"pointer",padding:"3px 6px",borderRadius:3,fontSize:"10px"}}>🗑</button>
-      </div>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────
-// DIAGNOSTIC MODAL
-// ────────────────────────────────────────────────────────────────
-function DiagModal({running,result,onRun,onClose}){
-  return(
-    <div className="modal-bg" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:"#0d1520",border:"1px solid #1e3a5f",borderRadius:8,padding:"28px",width:420,display:"flex",flexDirection:"column",gap:18}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontSize:"8px",letterSpacing:"4px",color:"#3b82f6",marginBottom:3}}>HERRAMIENTA DE DIAGNÓSTICO</div>
-            <div style={{fontSize:"17px",fontWeight:800,color:"#f1f5f9"}}>Conexión con Supabase</div>
-          </div>
-          <button onClick={onClose} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"20px",lineHeight:1}}>✕</button>
-        </div>
-
-        <div style={{fontSize:"12px",color:"#64748b",lineHeight:1.7}}>
-          Esta prueba escribe un valor de prueba en Supabase, lo lee de vuelta y verifica que coincide. Si falla te dirá exactamente en qué paso y por qué.
-        </div>
-
-        {/* Status boxes */}
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {[
-            {label:"URL de Supabase",val:SUPA_URL,ok:true},
-            {label:"Clave anon",val:SUPA_KEY.slice(0,30)+"…",ok:true},
-            {label:"Clave de datos (SKEY)",val:SKEY,ok:true},
-          ].map(item=>(
-            <div key={item.label} style={{display:"flex",gap:10,alignItems:"center",padding:"6px 10px",background:"#111d2e",borderRadius:4}}>
-              <span style={{fontSize:"9px",color:"#22c55e"}}>✓</span>
-              <div style={{flex:1}}>
-                <div style={{fontSize:"8px",color:"#334155",letterSpacing:"1px"}}>{item.label}</div>
-                <div style={{fontSize:"10px",color:"#64748b",fontFamily:"monospace"}}>{item.val}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Test result */}
-        {result&&(
-          <div style={{padding:"14px",background:result.ok?"#052e18":"#2d0a0a",border:`1px solid ${result.ok?"#166534":"#7f1d1d"}`,borderRadius:6}}>
-            {result.ok
-              ?<div><div style={{fontSize:"14px",fontWeight:700,color:"#22c55e",marginBottom:4}}>✓ Conexión correcta</div><div style={{fontSize:"12px",color:"#4ade80"}}>Escritura, lectura y verificación completadas. Supabase está funcionando correctamente.</div></div>
-              :<div>
-                <div style={{fontSize:"14px",fontWeight:700,color:"#ef4444",marginBottom:4}}>✗ Fallo en: {result.step}</div>
-                <div style={{fontSize:"11px",color:"#fca5a5",fontFamily:"monospace",wordBreak:"break-all",lineHeight:1.6}}>{result.msg}</div>
-                <div style={{marginTop:10,fontSize:"11px",color:"#9ca3af",lineHeight:1.6}}>
-                  <strong style={{color:"#cbd5e1"}}>Posibles causas:</strong><br/>
-                  • El proyecto de Supabase está pausado (entra en supabase.com y reactívalo)<br/>
-                  • La tabla app_data no existe (re-ejecuta el SQL del setup)<br/>
-                  • Problema de red o CORS
-                </div>
-              </div>
-            }
-          </div>
-        )}
-
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={onRun} disabled={running}
-            style={{flex:2,background:running?"#1e293b":"#1d4ed8",border:"none",color:running?"#475569":"#fff",padding:"10px",cursor:running?"default":"pointer",fontSize:"11px",borderRadius:4,fontFamily:"inherit",fontWeight:700}}>
-            {running?"⏳ Probando conexión…":"🔍 Ejecutar diagnóstico"}
-          </button>
-          <button onClick={onClose} style={{flex:1,background:"transparent",border:"1px solid #334155",color:"#94a3b8",padding:"10px",cursor:"pointer",fontSize:"11px",borderRadius:4,fontFamily:"inherit"}}>Cerrar</button>
-        </div>
-
-        <div style={{fontSize:"9px",color:"#1e3a5f",lineHeight:1.6,borderTop:"1px solid #1e2d40",paddingTop:12}}>
-          Si el diagnóstico falla, abre la consola del navegador (F12 → Console) y busca mensajes de error rojos. Compártelos para poder resolver el problema.
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────
-// LOGIN MODAL
-// ────────────────────────────────────────────────────────────────
-function LoginModal({D,onLogin,onClose}){
-  const [pass,setPass]=useState("");
-  const [err,setErr]=useState(false);
-  const check=()=>{
-    if(pass===D.config?.passEditor){onLogin(L.E);return;}
-    if(pass===D.config?.passSegui){onLogin(L.S);return;}
-    setErr(true);setTimeout(()=>setErr(false),1800);
-  };
-  return(
-    <div className="modal-bg" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:"#0d1520",border:"1px solid #1e3a5f",borderRadius:8,padding:"32px",width:340,display:"flex",flexDirection:"column",gap:16}}>
-        <div style={{fontSize:"9px",letterSpacing:"4px",color:"#3b82f6",textAlign:"center"}}>ACCESO RESTRINGIDO</div>
-        <div style={{fontSize:"20px",fontWeight:800,color:"#f1f5f9",textAlign:"center"}}>Introduce la contraseña</div>
-        <p style={{fontSize:"12px",color:"#475569",textAlign:"center",lineHeight:1.6}}>Seguimiento o Editor según la contraseña que utilices.</p>
-        <input type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr(false);}}
-          onKeyDown={e=>e.key==="Enter"&&check()}
-          placeholder="Contraseña…" autoFocus
-          style={{...INP,fontSize:"14px",padding:"10px 12px",textAlign:"center",letterSpacing:"3px",borderColor:err?"#ef4444":"#334155",transition:"border-color .2s"}}/>
-        {err&&<div style={{fontSize:"11px",color:"#ef4444",textAlign:"center"}}>Contraseña incorrecta</div>}
-        <div style={{display:"flex",gap:8}}>
-          <button onClick={onClose} style={{flex:1,...BTN,padding:"10px"}}>Cancelar</button>
-          <button onClick={check} style={{flex:2,background:"#1d4ed8",border:"none",color:"#fff",padding:"10px",cursor:"pointer",fontSize:"12px",borderRadius:4,fontFamily:"inherit",fontWeight:700}}>Acceder</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────
-// MATRIX
-// ────────────────────────────────────────────────────────────────
-function Matrix({D,cols,layer,isVisible,hasFilter,hlId,related,onAdd,onEdit,onHl,onProcess,onRenameRow,onDeleteRow,onMoveRow,onAddRow,cardRefs}){
-  const isPublic=layer===L.C;
-  const canEdit=layer===L.E;
-  const gc=`${LW}px repeat(${cols.length}, minmax(${CW}px,1fr))`;
-
-  return(
-    <div style={{display:"grid",gridTemplateColumns:gc,minWidth:LW+cols.length*CW,columnGap:"3px"}}>
-      {/* Column headers */}
-      <div style={{position:"sticky",top:22,left:0,zIndex:55,background:"#0d1520",borderRight:"1px solid #253347",borderBottom:"2px solid #253347",padding:"10px 12px",display:"flex",alignItems:"flex-end"}}>
-        <span style={{fontSize:"8px",letterSpacing:"2px",color:"#253347",fontWeight:600}}>ETAPA DEL CICLO</span>
-      </div>
-      {cols.map((col,ci)=>(
-        <div key={"ch"+col.id} style={{position:"sticky",top:0,zIndex:52,background:col.color,borderLeft:"1px solid rgba(255,255,255,0.07)",borderBottom:"2px solid rgba(0,0,0,0.45)",padding:"10px 14px 8px"}}>
-          <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.4)",marginBottom:3,fontWeight:600}}>{String(ci+1).padStart(2,"0")}</div>
-          <div style={{fontSize:"13px",fontWeight:800,color:"#fff",lineHeight:1.2,textShadow:"0 1px 3px rgba(0,0,0,0.6)"}}>{col.label}</div>
-          {col.sub&&<div style={{fontSize:"9px",color:"rgba(255,255,255,0.45)",marginTop:2}}>{col.sub}</div>}
-        </div>
-      ))}
-      {/* Data rows */}
-      {D.rows.map((row,ri)=>{
-        const bg=ri%2===0?"#16202e":"#131a28";
-        return[
-          <div key={"L"+row.id} style={{position:"sticky",left:0,zIndex:22,background:bg,borderRight:"1px solid #253347",borderBottom:"1px solid #1e2d40",padding:"10px 8px",minHeight:110}}>
-            {canEdit
-              ?<RowLabel row={row} idx={ri} total={D.rows.length} onRename={onRenameRow} onDelete={onDeleteRow} onMove={onMoveRow}/>
-              :<div style={{fontSize:"12px",fontWeight:600,color:"#94a3b8",lineHeight:1.4,padding:"2px 0"}}>{row.name}</div>
-            }
-          </div>,
-          ...cols.map(col=>{
-            let cc=D.cards.filter(c=>c.rowId===row.id&&c.colId===col.id);
-            if(isPublic)cc=cc.filter(c=>c.publicado);
+          {/* Dependency arrows */}
+          <defs>
+            <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,1 L7,4 L0,7 Z" fill="#388bfd" opacity="0.7"/>
+            </marker>
+          </defs>
+          {visibleCards.map(card=>(card.deps||[]).map(depId=>{
+            const dep=D.cards.find(c=>c.id===depId);
+            if(!dep)return null;
+            const vis=isVisible(card)&&isVisible(dep);
             return(
-              <div key={"C"+row.id+col.id} style={{background:bg,borderLeft:"1px solid #1e2d40",borderBottom:"1px solid #1e2d40",padding:"10px 12px",minHeight:130,display:"flex",flexDirection:"column",gap:0}}>
-                {getCellGroups(cc).map((grp,gi)=>(
-                  <CellGroup key={gi} group={grp} D={D} col={col} layer={layer}
-                    isVisible={isVisible} hasFilter={hasFilter}
-                    hlId={hlId} related={related}
-                    onEdit={onEdit} onHl={onHl} onProcess={onProcess} cardRefs={cardRefs}
-                    isPublic={isPublic}/>
-                ))}
-                {canEdit&&(
-                  <div style={{marginTop:"auto",paddingTop:5}}>
-                    <button className="addrow" onClick={()=>onAdd(row.id,col.id)} style={{width:"100%",background:"none",border:"1px dashed #1e2d40",color:"#1e2d40",padding:"3px",fontSize:"13px",cursor:"pointer",borderRadius:3,lineHeight:1,transition:"all .15s"}}>＋</button>
-                  </div>
-                )}
-              </div>
+              <path key={depId+">"+card.id}
+                d={getArrow(dep,card)}
+                stroke="#388bfd" strokeWidth={1.5} fill="none"
+                strokeOpacity={vis?0.5:0.1}
+                strokeDasharray="none"
+                markerEnd="url(#arr)"/>
             );
-          }),
-        ];
-      })}
+          }))}
+
+          {/* Cards */}
+          {visibleCards.map(card=>{
+            const owner=D.owners.find(o=>o.id===card.ownerId)||D.owners[0];
+            const tags=D.tags.filter(t=>card.tagIds.includes(t.id));
+            const pillar=D.pillars.find(p=>p.id===card.pillarId);
+            const vis=isVisible(card);
+            const isSel=selected===card.id;
+            const steps=card.steps||[];
+            const doneSteps=steps.filter(s=>s.status==="completado").length;
+            const blockedSteps=steps.some(s=>s.status==="bloqueado");
+            return(
+              <foreignObject key={card.id}
+                x={card.x} y={card.y} width={CARD_W} height={CARD_MIN_H+steps.length*0+80}
+                style={{overflow:"visible"}}>
+                <div xmlns="http://www.w3.org/1999/xhtml"
+                  data-cardid={card.id}
+                  style={{
+                    width:CARD_W,
+                    background:card.completado?"#0d2018":blockedSteps?"#1c0f0f":"#161b22",
+                    border:`1.5px solid ${isSel?pillar?.hl||"#388bfd":card.completado?"#238636":blockedSteps?"#f85149":pillar?.border||"#21262d"}`,
+                    borderTop:`3px solid ${owner.color}`,
+                    borderRadius:8,
+                    padding:"10px 11px 9px",
+                    opacity:(!vis&&(fOwners.length>0||fTags.length>0))?0.08:1,
+                    boxShadow:isSel?`0 0 0 2px ${pillar?.hl||"#388bfd"}44,0 8px 24px #00000066`:"0 2px 8px #00000044",
+                    transition:"opacity .2s,box-shadow .15s",
+                    cursor:canEdit?"grab":"pointer",
+                  }}>
+                  {/* Top: name + pillar badge */}
+                  <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:6}}>
+                    <div style={{flex:1,fontSize:12,fontWeight:600,color:card.completado?"#3fb950":"#e6edf3",lineHeight:1.35}}>
+                      {card.completado&&<span style={{color:"#3fb950",marginRight:4,fontSize:10}}>✓</span>}
+                      {card.name}
+                    </div>
+                    {pillar&&<span style={{fontSize:"8px",padding:"1px 5px",borderRadius:3,background:pillar.color,color:pillar.hl,border:`1px solid ${pillar.border}`,whiteSpace:"nowrap",flexShrink:0,fontWeight:600}}>{pillar.label}</span>}
+                  </div>
+                  {/* Owner */}
+                  <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:5}}>
+                    <div style={{width:6,height:6,borderRadius:"50%",background:owner.color,flexShrink:0}}/>
+                    <span style={{fontSize:10,color:owner.color,fontWeight:500}}>{owner.name}</span>
+                  </div>
+                  {/* Tags */}
+                  {tags.length>0&&(
+                    <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:5}}>
+                      {tags.map(t=><span key={t.id} style={{fontSize:"8px",padding:"1px 5px",borderRadius:10,background:t.color+"22",color:t.color,border:`1px solid ${t.color}33`,fontWeight:500}}>{t.name}</span>)}
+                    </div>
+                  )}
+                  {/* Steps progress */}
+                  {steps.length>0&&(
+                    <div style={{marginTop:4}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                        <span style={{fontSize:"8px",color:"#484f58"}}>Pasos</span>
+                        <span style={{fontSize:"8px",color:blockedSteps?"#f85149":doneSteps===steps.length?"#3fb950":"#484f58",fontWeight:600}}>{doneSteps}/{steps.length}</span>
+                      </div>
+                      <div style={{height:3,background:"#21262d",borderRadius:2}}>
+                        <div style={{height:"100%",width:`${steps.length?doneSteps/steps.length*100:0}%`,background:blockedSteps?"#f85149":"#3fb950",borderRadius:2,transition:"width .3s"}}/>
+                      </div>
+                    </div>
+                  )}
+                  {/* URL indicator */}
+                  {card.url&&<div style={{marginTop:4,fontSize:"8px",color:"#388bfd"}}>🔗 doc</div>}
+                </div>
+              </foreignObject>
+            );
+          })}
+
+          {/* Canvas size */}
+          <rect x={0} y={0} width={totalW} height={totalH} fill="none"/>
+        </g>
+      </svg>
+
+      {/* Hint */}
       {canEdit&&(
-        <div style={{gridColumn:"1/-1",padding:14,display:"flex",justifyContent:"center",borderTop:"1px solid #1e2d40"}}>
-          <button className="addrow" onClick={onAddRow} style={{background:"none",border:"1px dashed #1e2d40",color:"#253347",cursor:"pointer",padding:"7px 44px",fontSize:"9px",letterSpacing:"2px",borderRadius:3,transition:"all .15s"}}>+ AÑADIR ETAPA</button>
+        <div style={{position:"absolute",bottom:12,left:"50%",transform:"translateX(-50%)",fontSize:"9px",color:"#30363d",letterSpacing:"1px",pointerEvents:"none",whiteSpace:"nowrap"}}>
+          Doble clic para añadir · Arrastra para mover · Rueda para zoom
         </div>
       )}
-    </div>
-  );
-}
 
-
-// ────────────────────────────────────────────────────────────────
-// CELL GROUP — dashed frame for related cards, normal for singles
-// ────────────────────────────────────────────────────────────────
-function CellGroup({group,D,col,layer,isVisible,hasFilter,hlId,related,onEdit,onHl,onProcess,cardRefs,isPublic}){
-  const chipProps=(card)=>({
-    card,D,col,layer,
-    visible:isVisible(card),hasFilter,
-    highlighted:!isPublic&&hlId&&related.has(card.id),
-    dimmed:!isPublic&&!!hlId&&!related.has(card.id),
-    onClick:()=>onEdit(card),
-    onHl:e=>{e.stopPropagation();onHl(card.id);},
-    onProcess,cardRefs,
-  });
-
-  if(!group.isGroup){
-    return <div style={{marginBottom:8}}><CardChip {...chipProps(group.cards[0])}/></div>;
-  }
-
-  return(
-    <div style={{
-      border:"1.5px dashed #2d4a6a",
-      borderRadius:7,
-      padding:"7px 6px 5px",
-      background:"rgba(20,35,55,0.45)",
-      marginBottom:7,
-      position:"relative",
-    }}>
-      {/* Group label */}
-      <div style={{position:"absolute",top:-8,left:10,background:"#16202e",padding:"0 6px",fontSize:"7px",letterSpacing:"2px",color:"#3b5c80",fontWeight:700,whiteSpace:"nowrap"}}>
-        FLUJO · {group.cards.length} PASOS
-      </div>
-      {group.cards.map((card,i)=>{
-        const prev=group.cards[i-1];
-        const hasArrow=prev&&group.edges.has(prev.id+":"+card.id);
-        return(
-          <div key={card.id}>
-            {hasArrow&&(
-              <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"4px 0",gap:1}}>
-                <div style={{width:2,height:8,background:"#2d4a6a",borderRadius:1}}/>
-                <div style={{width:0,height:0,borderLeft:"5px solid transparent",borderRight:"5px solid transparent",borderTop:"6px solid #2d4a6a"}}/>
-              </div>
-            )}
-            <CardChip {...chipProps(card)}/>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────
-// ROW LABEL (editor only)
-// ────────────────────────────────────────────────────────────────
-function RowLabel({row,idx,total,onRename,onDelete,onMove}){
-  const [ed,setEd]=useState(false);
-  const [v,setV]=useState(row.name);
-  const commit=()=>{onRename(row.id,v||row.name);setEd(false);};
-  return(
-    <div style={{display:"flex",flexDirection:"column",height:"100%",gap:6}}>
-      {ed?<input value={v} onChange={e=>setV(e.target.value)} onBlur={commit} onKeyDown={e=>{if(e.key==="Enter")commit();if(e.key==="Escape")setEd(false);}} autoFocus style={{...INP,fontSize:"12px",padding:"3px 6px"}}/>
-        :<div onClick={()=>{setV(row.name);setEd(true);}} style={{fontSize:"12px",fontWeight:600,color:"#94a3b8",lineHeight:1.4,cursor:"text",flex:1}}>{row.name}</div>}
-      <div style={{display:"flex",gap:3}}>
-        {[["↑",()=>onMove(row.id,-1),idx===0],["↓",()=>onMove(row.id,1),idx===total-1],["✕",()=>{if(window.confirm(`¿Eliminar "${row.name}"?`))onDelete(row.id);},false,true]].map(([lbl,fn,dis,danger])=>(
-          <button key={lbl} onClick={dis?undefined:fn} style={{background:"none",border:`1px solid ${danger?"#3f1010":dis?"#1e2d40":"#1e2d40"}`,color:danger?"#5a1818":dis?"#1e2d40":"#334155",cursor:dis?"default":"pointer",padding:"2px 6px",fontSize:"9px",borderRadius:2,lineHeight:1}}>{lbl}</button>
-        ))}
+      {/* Zoom controls */}
+      <div style={{position:"absolute",bottom:12,right:12,display:"flex",flexDirection:"column",gap:4}}>
+        <button onClick={()=>setVp(v=>({...v,scale:Math.min(2,v.scale*1.2)}))} style={{...ICONBTN}}>+</button>
+        <button onClick={()=>setVp(v=>({...v,scale:Math.max(0.2,v.scale/1.2)}))} style={{...ICONBTN}}>−</button>
+        <button onClick={()=>setVp({x:ROW_LABEL_W,y:0,scale:1})} style={{...ICONBTN,fontSize:9}}>⌂</button>
       </div>
     </div>
   );
 }
 
-// ────────────────────────────────────────────────────────────────
-// CARD CHIP
-// ────────────────────────────────────────────────────────────────
-function CardChip({card,D,col,layer,visible,hasFilter,highlighted,dimmed,onClick,onHl,onProcess,cardRefs}){
-  const [open,setOpen]=useState(false);
-  const isPublic=layer===L.C;
-  const canEdit=layer===L.E;
-  const owner=D.owners.find(o=>o.id===card.ownerId)||D.owners[0];
-  const allTags=D.tags.filter(t=>card.tagIds.includes(t.id));
-  const visibleTags=isPublic?allTags.filter(t=>t.tipo==="publicada"):allTags;
-  const subs=card.subtasks||[];
-  const done=subs.filter(s=>s.done).length;
-  const depNames=(card.deps||[]).map(d=>{const c=D.cards.find(x=>x.id===d);return c?c.name:null;}).filter(Boolean);
+// ── Card Panel ────────────────────────────────────────────────────────────────
+function CardPanel({card,D,canEdit,isPublic,onUpdate,onDelete,onClose}){
+  const [f,setF]=useState({...card,steps:(card.steps||[]).map(s=>({...s}))});
+  const set=(k,v)=>setF(p=>({...p,[k]:v}));
 
-  // Consulta mode: simplified, polished card
+  useEffect(()=>{setF({...card,steps:(card.steps||[]).map(s=>({...s}))});},[card.id]);
+
+  const save=()=>onUpdate(f);
+  const owner=D.owners.find(o=>o.id===f.ownerId)||D.owners[0];
+  const pillar=D.pillars.find(p=>p.id===f.pillarId);
+  const row=D.rows.find(r=>r.id===f.rowId);
+
+  const addStep=()=>setF(p=>({...p,steps:[...p.steps,{id:uid(),name:"Nuevo paso",desc:"",ownerId:p.ownerId,status:"pendiente"}]}));
+  const upStep=(id,k,v)=>setF(p=>({...p,steps:p.steps.map(s=>s.id===id?{...s,[k]:v}:s)}));
+  const delStep=id=>setF(p=>({...p,steps:p.steps.filter(s=>s.id!==id)}));
+
+  // Public view: simplified
   if(isPublic){
     return(
-      <div onClick={onClick} className="chip"
-        style={{background:card.completado?"#071f12":"#1c2d42",border:`1px solid ${card.completado?"#22c55e":"#2d4060"}`,borderLeft:`4px solid ${card.completado?"#22c55e":owner.color}`,borderRadius:5,padding:"10px 12px",cursor:"pointer",marginBottom:5}}>
-        <div style={{fontSize:"13px",fontWeight:700,color:"#f1f5f9",lineHeight:1.3,marginBottom:4}}>{card.completado&&<span style={{fontSize:"10px",color:"#22c55e",marginRight:6}}>✓</span>}{card.name}</div>
-        {card.desc&&<div style={{fontSize:"11px",color:"#64748b",lineHeight:1.5,marginBottom:6,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{card.desc}</div>}
-        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          <span style={{fontSize:"10px",color:owner.color,fontWeight:600}}>{owner.name}</span>
-          {visibleTags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"2px 7px",borderRadius:10,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
-          {card.url&&<span style={{marginLeft:"auto",fontSize:"9px",color:"#3b82f6",fontWeight:600}}>🔗 Ver doc</span>}
+      <div className="panel-slide fade-up" style={{width:320,background:"#161b22",borderLeft:"1px solid #21262d",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+        <div style={{padding:"16px",background:pillar?.color||"#161b22",borderBottom:`1px solid ${pillar?.border||"#21262d"}`}}>
+          <button onClick={onClose} style={{float:"right",background:"none",border:"none",color:"#484f58",cursor:"pointer",fontSize:18,lineHeight:1}}>✕</button>
+          {pillar&&<div style={{fontSize:"8px",letterSpacing:"2px",color:pillar.hl,marginBottom:4,fontWeight:600}}>{pillar.label} · {row?.label}</div>}
+          <div style={{fontSize:18,fontWeight:700,color:"#e6edf3",lineHeight:1.3}}>{card.name}</div>
+        </div>
+        <div style={{flex:1,overflow:"auto",padding:16,display:"flex",flexDirection:"column",gap:14}}>
+          {card.desc&&<div style={{fontSize:13,color:"#8b949e",lineHeight:1.7}}>{card.desc}</div>}
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:owner.color}}/>
+            <span style={{fontSize:12,color:owner.color,fontWeight:600}}>{owner.name}</span>
+          </div>
+          {D.tags.filter(t=>card.tagIds.includes(t.id)&&t.tipo==="publicada").map(t=>(
+            <span key={t.id} style={{fontSize:10,background:t.color+"22",color:t.color,padding:"3px 10px",borderRadius:20,border:`1px solid ${t.color}44`,fontWeight:500,alignSelf:"flex-start"}}>{t.name}</span>
+          ))}
+          {card.url&&<a href={card.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:"#21262d",borderRadius:6,color:"#388bfd",fontSize:12,fontWeight:600,textDecoration:"none"}}>🔗 Abrir documento →</a>}
         </div>
       </div>
     );
   }
 
   return(
-    <div ref={el=>{if(el)cardRefs.current[card.id]=el;else delete cardRefs.current[card.id];}}
-      className="chip"
-      style={{background:highlighted?"#0f2344":card.completado?"#071f12":"#1c2d42",border:`1px solid ${card.completado?"#22c55e":highlighted?col.hl+"88":dimmed?"#1a2535":"#2d4060"}`,borderLeft:`4px solid ${card.completado?"#22c55e":highlighted?col.hl:owner.color}`,borderRadius:4,padding:"8px 9px",cursor:"pointer",
-        opacity:hasFilter&&!visible?0.05:dimmed?0.12:1,
-        boxShadow:highlighted?`0 0 0 1px ${col.hl}33,0 2px 12px ${col.hl}18`:"none",
-      }}>
-      <div style={{display:"flex",alignItems:"flex-start",gap:5}}>
-        <div onClick={onClick} style={{flex:1,fontSize:"12px",fontWeight:600,color:highlighted?"#f1f5f9":"#cbd5e1",lineHeight:1.4}}>{card.name}</div>
-        {/* Process view button */}
-        {!isPublic&&<button onClick={e=>{e.stopPropagation();if(typeof onProcess==="function")onProcess(card);}} title="Ver flujo de proceso"
-          style={{background:"none",border:"1px solid #1e3a5f",color:"#1e3a5f",cursor:"pointer",padding:"1px 5px",borderRadius:3,fontSize:"10px",lineHeight:1.4,flexShrink:0,fontWeight:700,transition:"all .15s"}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="#3b82f6";e.currentTarget.style.color="#3b82f6";}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e3a5f";e.currentTarget.style.color="#1e3a5f";}}
-        >▶</button>}
-        {/* Published badge */}
-        {canEdit&&(
-          <span style={{fontSize:"8px",padding:"1px 5px",borderRadius:3,background:card.publicado?"#052e18":"#1a2535",color:card.publicado?"#34d399":"#334155",border:`1px solid ${card.publicado?"#166534":"#253347"}`,flexShrink:0,fontWeight:700}}>
-            {card.publicado?"PUB":"—"}
-          </span>
-        )}
-        {(layer===L.S||canEdit)&&<button onClick={onHl} title="Ver relaciones" style={{background:"none",border:"none",color:highlighted?col.hl:"#2d4060",cursor:"pointer",padding:"0 2px",fontSize:"12px",lineHeight:1,flexShrink:0}}>⤳</button>}
-      </div>
-      {allTags.length>0&&(
-        <div style={{display:"flex",gap:3,flexWrap:"wrap",marginTop:5}}>
-          {allTags.map(t=><span key={t.id} style={{fontSize:"8px",background:t.color+"25",color:t.color,padding:"1px 6px",borderRadius:10,border:`1px solid ${t.color+"44"}`,fontWeight:600,opacity:t.tipo==="interna"?1:1}}>{t.tipo==="publicada"&&"◆ "}{t.name}</span>)}
+    <div className="panel-slide" style={{width:340,background:"#161b22",borderLeft:"1px solid #21262d",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+      {/* Panel header */}
+      <div style={{padding:"12px 14px",background:pillar?.color||"#161b22",borderBottom:`1px solid ${pillar?.border||"#21262d"}`,flexShrink:0}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            {pillar&&<div style={{fontSize:"8px",letterSpacing:"2px",color:pillar.hl,marginBottom:2,fontWeight:600}}>{pillar.label}{row&&" · "+row.label}</div>}
+            <div style={{fontSize:13,fontWeight:700,color:"#e6edf3"}}>Editar entrada</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#484f58",cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>✕</button>
         </div>
-      )}
-      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
-        {card.url&&<span style={{fontSize:"9px",color:"#2d4060"}} title={card.url}>🔗</span>}
-        {subs.length>0&&(
-          <button onClick={e=>{e.stopPropagation();setOpen(o=>!o);}}
-            style={{marginLeft:"auto",background:"none",border:`1px solid ${done===subs.length?"#166534":"#2d4060"}`,color:done===subs.length?"#22c55e":"#64748b",cursor:"pointer",padding:"1px 7px",borderRadius:10,fontSize:"9px",fontWeight:600}}>
-            {open?"▲":"▼"} {done}/{subs.length}
-          </button>
-        )}
       </div>
-      {open&&subs.length>0&&(
-        <div style={{marginTop:6,borderTop:"1px solid #1e2d40",paddingTop:6,display:"flex",flexDirection:"column",gap:4}}>
-          {subs.map(s=><div key={s.id} style={{display:"flex",alignItems:"center",gap:7,fontSize:"11px",color:s.done?"#334155":"#94a3b8",textDecoration:s.done?"line-through":"none"}}>
-            <span style={{color:s.done?"#22c55e":"#2d4060",fontSize:"10px",flexShrink:0}}>{s.done?"✓":"○"}</span>{s.name}
-          </div>)}
-        </div>
-      )}
-      {highlighted&&depNames.length>0&&(
-        <div style={{marginTop:6,padding:"5px 7px",background:"#0a1a30",borderRadius:3,fontSize:"9px",color:"#60a5fa",lineHeight:1.6,borderTop:"1px solid #1a3050"}}>⇐ {depNames.join(" · ")}</div>
-      )}
-    </div>
-  );
-}
 
-// ────────────────────────────────────────────────────────────────
-// CONSULTA PANEL (read-only detail, layer C)
-// ────────────────────────────────────────────────────────────────
-function ConsultaPanel({card,D,cols,onClose}){
-  const col=cols.find(c=>c.id===card.colId);
-  const row=D.rows.find(r=>r.id===card.rowId);
-  const owner=D.owners.find(o=>o.id===card.ownerId)||D.owners[0];
-  const tags=D.tags.filter(t=>card.tagIds.includes(t.id)&&t.tipo==="publicada");
-  return(
-    <div style={{width:340,background:"#0d1520",borderLeft:"2px solid #1e2d40",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
-      <div style={{padding:"20px",background:col?.color||"#1e293b",flexShrink:0,borderBottom:`2px solid rgba(255,255,255,0.1)`}}>
-        <button onClick={onClose} style={{float:"right",background:"none",border:"none",color:"rgba(255,255,255,0.35)",cursor:"pointer",fontSize:"20px",lineHeight:1,padding:0,marginLeft:8}}>✕</button>
-        <div style={{fontSize:"8px",letterSpacing:"3px",color:"rgba(255,255,255,0.45)",marginBottom:6}}>{row?.name} · {col?.label}</div>
-        <div style={{fontSize:"20px",fontWeight:800,color:"#fff",lineHeight:1.3,textShadow:"0 2px 8px rgba(0,0,0,0.5)"}}>{card.name}</div>
-      </div>
-      <div style={{flex:1,overflow:"auto",padding:20,display:"flex",flexDirection:"column",gap:18}}>
-        {/* Owner */}
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:4,height:36,borderRadius:2,background:owner.color,flexShrink:0}}/>
-          <div>
-            <div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:2,fontWeight:600}}>RESPONSABLE</div>
-            <div style={{fontSize:"14px",fontWeight:700,color:owner.color}}>{owner.name}</div>
-          </div>
+      <div style={{flex:1,overflow:"auto",padding:14,display:"flex",flexDirection:"column",gap:12}}>
+        {/* Status toggles */}
+        <div style={{display:"flex",gap:8}}>
+          <Toggle active={f.publicado} color="#388bfd" onClick={()=>{set("publicado",!f.publicado);}} label={f.publicado?"◆ Publicado":"◇ Privado"}/>
+          <Toggle active={f.completado} color="#3fb950" onClick={()=>{set("completado",!f.completado);}} label={f.completado?"✓ Completado":"○ En curso"}/>
         </div>
-        {/* Description */}
-        {card.desc&&(
-          <div>
-            <div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:8,fontWeight:600}}>DESCRIPCIÓN</div>
-            <p style={{fontSize:"13px",color:"#94a3b8",lineHeight:1.7}}>{card.desc}</p>
-          </div>
-        )}
-        {/* Tags */}
-        {tags.length>0&&(
-          <div>
-            <div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:8,fontWeight:600}}>CATEGORÍAS</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-              {tags.map(t=><span key={t.id} style={{fontSize:"11px",background:t.color+"25",color:t.color,padding:"4px 12px",borderRadius:20,border:`1px solid ${t.color}44`,fontWeight:600}}>{t.name}</span>)}
-            </div>
-          </div>
-        )}
-        {/* Link */}
-        {card.url&&(
-          <div>
-            <div style={{fontSize:"8px",letterSpacing:"2px",color:"#334155",marginBottom:8,fontWeight:600}}>DOCUMENTO</div>
-            <a href={card.url} target="_blank" rel="noreferrer"
-              style={{display:"flex",alignItems:"center",gap:8,padding:"12px 16px",background:"#1c2d42",border:"1px solid #2d4060",borderRadius:6,color:"#60a5fa",fontSize:"12px",fontWeight:600,textDecoration:"none",transition:"background .15s"}}>
-              🔗 Abrir documento →
-            </a>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
-// ────────────────────────────────────────────────────────────────
-// CARD PANEL (editor)
-// ────────────────────────────────────────────────────────────────
-function CardPanel({card,D,cols,onSave,onDelete,onClose}){
-  const [f,setF]=useState({...card,subtasks:card.subtasks||[],publicado:card.publicado||false,completado:card.completado||false});
-  const set=(k,v)=>setF(p=>({...p,[k]:v}));
-  const owner=D.owners.find(o=>o.id===f.ownerId)||D.owners[0];
-  const col=cols.find(c=>c.id===f.colId);
-  const row=D.rows.find(r=>r.id===f.rowId);
-  const addSub=()=>setF(p=>({...p,subtasks:[...p.subtasks,{id:uid(),name:"",done:false}]}));
-  const updateSub=(id,k,v)=>setF(p=>({...p,subtasks:p.subtasks.map(s=>s.id===id?{...s,[k]:v}:s)}));
-  const deleteSub=id=>setF(p=>({...p,subtasks:p.subtasks.filter(s=>s.id!==id)}));
-  return(
-    <div style={{width:320,background:"#0d1520",borderLeft:"2px solid #1e2d40",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
-      <div style={{padding:"12px 16px",background:col?.color||"#1e293b",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-        <div>
-          <div style={{fontSize:"8px",letterSpacing:"2px",color:"rgba(255,255,255,0.45)",marginBottom:2}}>{row?.name} · {col?.label}</div>
-          <div style={{fontSize:"13px",color:"#fff",fontWeight:800}}>Editar entrada</div>
-        </div>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"rgba(255,255,255,0.35)",cursor:"pointer",fontSize:"20px",lineHeight:1,padding:0}}>✕</button>
-      </div>
-      <div style={{flex:1,overflow:"auto",padding:16,display:"flex",flexDirection:"column",gap:14}}>
-        {/* Publicado toggle */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:f.publicado?"#052e18":"#1a2535",border:`1px solid ${f.publicado?"#166534":"#253347"}`,borderRadius:6,cursor:"pointer"}} onClick={()=>set("publicado",!f.publicado)}>
-          <div>
-            <div style={{fontSize:"11px",fontWeight:700,color:f.publicado?"#34d399":"#64748b"}}>{f.publicado?"✓ Publicado":"— No publicado"}</div>
-            <div style={{fontSize:"9px",color:f.publicado?"#166534":"#334155",marginTop:2}}>{f.publicado?"Visible en Vista pública":"Solo visible en Editor y Seguimiento"}</div>
-          </div>
-          <div style={{width:36,height:20,borderRadius:10,background:f.publicado?"#166534":"#253347",position:"relative",transition:"background .2s",flexShrink:0}}>
-            <div style={{position:"absolute",top:3,left:f.publicado?18:3,width:14,height:14,borderRadius:7,background:f.publicado?"#34d399":"#475569",transition:"left .2s"}}/>
-          </div>
-        </div>
-        {/* Completado toggle */}
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:f.completado?"#052e18":"#1a2535",border:`2px solid ${f.completado?"#22c55e":"#253347"}`,borderRadius:6,cursor:"pointer"}} onClick={()=>set("completado",!f.completado)}>
-          <div>
-            <div style={{fontSize:"11px",fontWeight:700,color:f.completado?"#22c55e":"#64748b"}}>{f.completado?"✓ Completado":"○ En progreso"}</div>
-            <div style={{fontSize:"9px",color:f.completado?"#166534":"#334155",marginTop:2}}>{f.completado?"Borde verde visible en todas las vistas":"Sin indicador de finalización"}</div>
-          </div>
-          <div style={{width:36,height:20,borderRadius:10,background:f.completado?"#166534":"#253347",position:"relative",transition:"background .2s",flexShrink:0}}>
-            <div style={{position:"absolute",top:3,left:f.completado?18:3,width:14,height:14,borderRadius:7,background:f.completado?"#22c55e":"#475569",transition:"left .2s"}}/>
-          </div>
-        </div>
         <Fld label="NOMBRE"><input value={f.name} onChange={e=>set("name",e.target.value)} style={INP}/></Fld>
-        <Fld label="DESCRIPCIÓN"><textarea value={f.desc} onChange={e=>set("desc",e.target.value)} rows={3} placeholder="Describe de qué trata…" style={{...INP,resize:"vertical",lineHeight:1.6}}/></Fld>
+        <Fld label="DESCRIPCIÓN"><textarea value={f.desc} onChange={e=>set("desc",e.target.value)} rows={3} style={{...INP,resize:"vertical",lineHeight:1.6}}/></Fld>
         <Fld label="ENLACE / DOCUMENTO">
           <input value={f.url} onChange={e=>set("url",e.target.value)} placeholder="https://…" style={INP}/>
-          {f.url&&<a href={f.url} target="_blank" rel="noreferrer" style={{fontSize:"9px",color:"#3b82f6",display:"block",marginTop:4}}>↗ abrir enlace</a>}
+          {f.url&&<a href={f.url} target="_blank" rel="noreferrer" style={{fontSize:9,color:"#388bfd",display:"block",marginTop:3}}>↗ abrir</a>}
         </Fld>
+
+        {/* Pillar + Row selectors */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <Fld label="PILAR">
+            <select value={f.pillarId||""} onChange={e=>set("pillarId",e.target.value)} style={INP}>
+              <option value="">Sin pilar</option>
+              {D.pillars.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+            </select>
+          </Fld>
+          <Fld label="ETAPA">
+            <select value={f.rowId||""} onChange={e=>set("rowId",e.target.value)} style={INP}>
+              <option value="">Sin etapa</option>
+              {D.rows.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
+            </select>
+          </Fld>
+        </div>
+
         <Fld label="OWNER">
           <select value={f.ownerId} onChange={e=>set("ownerId",e.target.value)} style={{...INP,color:owner.color}}>
             {D.owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
-          <div style={{height:3,borderRadius:2,marginTop:4,background:owner.color}}/>
+          <div style={{height:2,borderRadius:1,marginTop:4,background:owner.color}}/>
         </Fld>
+
         <Fld label="ETIQUETAS">
           <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-            {D.tags.map(t=>{const sel=f.tagIds.includes(t.id);return(
-              <Pill key={t.id} color={t.color} active={sel} onClick={()=>set("tagIds",sel?f.tagIds.filter(x=>x!==t.id):[...f.tagIds,t.id])}>
+            {D.tags.map(t=>{
+              const sel=f.tagIds.includes(t.id);
+              return<Chip key={t.id} color={t.color} active={sel}
+                onClick={()=>set("tagIds",sel?f.tagIds.filter(x=>x!==t.id):[...f.tagIds,t.id])}>
                 {t.tipo==="publicada"&&"◆ "}{t.name}
-              </Pill>
-            );})}
+              </Chip>;
+            })}
           </div>
-          <div style={{fontSize:"8px",color:"#334155",marginTop:4}}>◆ = etiqueta publicada (visible en Vista pública)</div>
         </Fld>
-        <Fld label="SUBTAREAS">
-          <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:6}}>
-            {f.subtasks.map((s,i)=>(
-              <div key={s.id} style={{display:"flex",alignItems:"center",gap:5}}>
-                <input type="checkbox" checked={s.done} onChange={e=>updateSub(s.id,"done",e.target.checked)} style={{width:14,height:14,accentColor:"#22c55e",flexShrink:0,cursor:"pointer"}}/>
-                <input value={s.name} onChange={e=>updateSub(s.id,"name",e.target.value)} placeholder={`Subtarea ${i+1}`} style={{...INP,flex:1,padding:"4px 7px",fontSize:"11px"}}/>
-                <button onClick={()=>deleteSub(s.id)} style={{background:"none",border:"1px solid #1e2d40",color:"#4a1010",cursor:"pointer",padding:"3px 7px",borderRadius:2,fontSize:"11px",flexShrink:0}}>✕</button>
-              </div>
-            ))}
-          </div>
-          <button onClick={addSub} style={{...BTN,width:"100%",padding:"5px",fontSize:"10px",borderStyle:"dashed"}}>+ subtarea</button>
-        </Fld>
+
         <Fld label="DEPENDENCIAS">
-          <DepSelect value={f.deps} onChange={v=>set("deps",v)} cards={D.cards} rows={D.rows} cols={cols} currentId={card.id}/>
+          <DepSelect value={f.deps} onChange={v=>set("deps",v)}
+            cards={D.cards} currentId={card.id} D={D}/>
         </Fld>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <Fld label="SEMANA INICIO"><input type="number" min={0} max={52} value={f.sw} onChange={e=>set("sw",+e.target.value)} style={INP}/></Fld>
-          <Fld label="SEMANA FIN"><input type="number" min={0} max={52} value={f.ew} onChange={e=>set("ew",+e.target.value)} style={INP}/></Fld>
-        </div>
-        <div style={{fontSize:"8px",color:"#1e3a5f",marginTop:-8}}>Para la futura vista Gantt</div>
+
+        {/* Steps */}
+        <Fld label={`PASOS (${f.steps.length})`}>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {f.steps.map((step,si)=>{
+              const st=STEP_STATUS.find(s=>s.id===step.status)||STEP_STATUS[0];
+              const sOwner=D.owners.find(o=>o.id===step.ownerId)||D.owners[0];
+              return(
+                <div key={step.id} style={{background:"#0d1117",border:"1px solid #21262d",borderLeft:`3px solid ${st.color}`,borderRadius:5,padding:"8px 9px"}}>
+                  <div style={{display:"flex",gap:5,alignItems:"center",marginBottom:6}}>
+                    <button onClick={()=>upStep(step.id,"status",nextSt(step.status))}
+                      style={{background:"#161b22",border:`1px solid ${st.color}`,color:st.color,cursor:"pointer",padding:"1px 7px",borderRadius:10,fontSize:"8px",fontWeight:600,fontFamily:"inherit",flexShrink:0}}>
+                      {st.label}
+                    </button>
+                    <input value={step.name} onChange={e=>upStep(step.id,"name",e.target.value)}
+                      style={{...INP,flex:1,padding:"3px 6px",fontSize:11,fontWeight:600}}/>
+                    <button onClick={()=>delStep(step.id)} style={{background:"none",border:"none",color:"#484f58",cursor:"pointer",fontSize:12,padding:0,flexShrink:0}}>✕</button>
+                  </div>
+                  <textarea value={step.desc||""} onChange={e=>upStep(step.id,"desc",e.target.value)}
+                    rows={1} placeholder="Descripción del paso…"
+                    style={{...INP,fontSize:10,resize:"none",marginBottom:5,lineHeight:1.5}}/>
+                  <select value={step.ownerId||""} onChange={e=>upStep(step.id,"ownerId",e.target.value)}
+                    style={{...INP,fontSize:10,padding:"2px 5px",color:sOwner.color}}>
+                    {D.owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={addStep} style={{...BTN,width:"100%",marginTop:6,borderStyle:"dashed",padding:"5px"}}>+ añadir paso</button>
+        </Fld>
       </div>
-      <div style={{padding:"12px 16px",borderTop:"1px solid #1e2d40",display:"flex",gap:8,flexShrink:0}}>
-        <button onClick={()=>onSave(f)} style={{flex:1,background:"#1d4ed8",border:"none",color:"#fff",padding:"9px",cursor:"pointer",fontSize:"11px",letterSpacing:"1px",borderRadius:4,fontFamily:"inherit",fontWeight:700}}>GUARDAR</button>
-        <button onClick={onDelete} style={{background:"none",border:"1px solid #1e2d40",color:"#334155",padding:"9px 13px",cursor:"pointer",fontSize:"14px",borderRadius:4}}>🗑</button>
+
+      <div style={{padding:"10px 14px",borderTop:"1px solid #21262d",display:"flex",gap:8,flexShrink:0}}>
+        <button onClick={()=>{save();onClose();}} style={{flex:1,background:"#1f6feb",border:"none",color:"#fff",padding:"8px",cursor:"pointer",fontSize:11,borderRadius:5,fontFamily:"inherit",fontWeight:700}}>GUARDAR</button>
+        <button onClick={save} style={{...BTN,padding:"8px 10px",fontSize:10}}>💾</button>
+        <button onClick={()=>{if(window.confirm("¿Eliminar?"))onDelete();}} style={{...BTN,padding:"8px 10px",color:"#f85149",borderColor:"#f8514933"}}>🗑</button>
       </div>
     </div>
   );
 }
 
-// ────────────────────────────────────────────────────────────────
-// DEP SELECT
-// ────────────────────────────────────────────────────────────────
-function DepSelect({value,onChange,cards,rows,cols,currentId}){
+// ── Dep select ─────────────────────────────────────────────────────────────────
+function DepSelect({value,onChange,cards,currentId,D}){
   const [open,setOpen]=useState(false);
   const [q,setQ]=useState("");
   const ref=useRef(null);
-  useEffect(()=>{const fn=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};document.addEventListener("mousedown",fn);return()=>document.removeEventListener("mousedown",fn);},[]);
+  useEffect(()=>{
+    const fn=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
+    document.addEventListener("mousedown",fn);
+    return()=>document.removeEventListener("mousedown",fn);
+  },[]);
   const others=cards.filter(c=>c.id!==currentId);
   const filtered=q?others.filter(c=>c.name.toLowerCase().includes(q.toLowerCase())):others;
   const toggle=id=>onChange(value.includes(id)?value.filter(x=>x!==id):[...value,id]);
   return(
     <div ref={ref} style={{position:"relative"}}>
-      <button onClick={()=>setOpen(o=>!o)} style={{...INP,textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",color:value.length?"#e2e8f0":"#475569"}}>
+      <button onClick={()=>setOpen(o=>!o)}
+        style={{...INP,textAlign:"left",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",color:value.length?"#e6edf3":"#484f58"}}>
         <span>{value.length?`${value.length} dependencia${value.length>1?"s":""}`:"Seleccionar…"}</span>
-        <span style={{color:"#475569",fontSize:"10px"}}>{open?"▲":"▼"}</span>
+        <span style={{color:"#484f58",fontSize:10}}>{open?"▲":"▼"}</span>
       </button>
       {open&&(
-        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:200,background:"#0d1520",border:"1px solid #334155",borderRadius:4,marginTop:2,boxShadow:"0 8px 24px rgba(0,0,0,0.7)",maxHeight:220,display:"flex",flexDirection:"column"}}>
-          <div style={{padding:6,borderBottom:"1px solid #1e2d40",flexShrink:0}}>
-            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" autoFocus style={{...INP,padding:"4px 8px",fontSize:"11px"}}/>
+        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:300,background:"#161b22",border:"1px solid #30363d",borderRadius:5,marginTop:2,boxShadow:"0 8px 24px #000a",maxHeight:200,display:"flex",flexDirection:"column"}}>
+          <div style={{padding:5,borderBottom:"1px solid #21262d",flexShrink:0}}>
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar…" autoFocus style={{...INP,padding:"3px 7px",fontSize:10}}/>
           </div>
           <div style={{overflow:"auto",flex:1}}>
-            {filtered.length===0&&<div style={{padding:"10px 12px",fontSize:"11px",color:"#334155"}}>Sin resultados</div>}
+            {filtered.length===0&&<div style={{padding:"8px 10px",fontSize:10,color:"#484f58"}}>Sin resultados</div>}
             {filtered.map(c=>{
-              const row=rows.find(r=>r.id===c.rowId),col=cols.find(x=>x.id===c.colId),sel=value.includes(c.id);
+              const p=D.pillars.find(x=>x.id===c.pillarId);
+              const sel=value.includes(c.id);
               return(
-                <div key={c.id} onClick={()=>toggle(c.id)} style={{padding:"7px 10px",cursor:"pointer",display:"flex",alignItems:"flex-start",gap:8,background:sel?"#0f2344":"transparent",borderBottom:"1px solid #0d1520"}}>
-                  <input type="checkbox" checked={sel} readOnly style={{marginTop:2,accentColor:"#3b82f6",flexShrink:0}}/>
+                <div key={c.id} onClick={()=>toggle(c.id)}
+                  style={{padding:"6px 9px",cursor:"pointer",display:"flex",gap:7,alignItems:"flex-start",background:sel?"#1f2d3d":"transparent",borderBottom:"1px solid #0d1117"}}>
+                  <input type="checkbox" checked={sel} readOnly style={{marginTop:2,accentColor:"#388bfd",flexShrink:0,cursor:"pointer"}}/>
                   <div>
-                    <div style={{fontSize:"11px",color:sel?"#e2e8f0":"#64748b",lineHeight:1.3}}>{c.name}</div>
-                    <div style={{fontSize:"8px",color:"#1e3a5f",marginTop:2}}>{row?.name} · <span style={{color:col?.hl||"#475569"}}>{col?.label}</span></div>
+                    <div style={{fontSize:11,color:sel?"#e6edf3":"#6e7681",lineHeight:1.3}}>{c.name}</div>
+                    {p&&<div style={{fontSize:8,color:p.hl,marginTop:1}}>{p.label}</div>}
                   </div>
                 </div>
               );
@@ -1319,92 +730,126 @@ function DepSelect({value,onChange,cards,rows,cols,currentId}){
   );
 }
 
-// ────────────────────────────────────────────────────────────────
-// SETTINGS PANEL
-// ────────────────────────────────────────────────────────────────
+// ── Settings Panel ─────────────────────────────────────────────────────────────
 function SettingsPanel({D,mut,onClose}){
-  const addOwner=()=>mut(d=>d.owners.push({id:"o"+uid(),name:"Nuevo responsable",color:"#3b82f6"}));
+  const addOwner=()=>mut(d=>d.owners.push({id:"o"+uid(),name:"Nuevo responsable",color:"#388bfd"}));
   const upOwner=(id,k,v)=>mut(d=>{const o=d.owners.find(o=>o.id===id);if(o)o[k]=v;});
   const delOwner=id=>mut(d=>{if(d.owners.length<=1)return;d.owners=d.owners.filter(o=>o.id!==id);const fb=d.owners[0].id;d.cards=d.cards.map(c=>({...c,ownerId:c.ownerId===id?fb:c.ownerId}));});
-  const addTag=()=>mut(d=>d.tags.push({id:"tg"+uid(),name:"Nueva etiqueta",color:"#3b82f6",tipo:"interna"}));
+
+  const addTag=()=>mut(d=>d.tags.push({id:"tg"+uid(),name:"Nueva etiqueta",color:"#388bfd",tipo:"interna"}));
   const upTag=(id,k,v)=>mut(d=>{const t=d.tags.find(t=>t.id===id);if(t)t[k]=v;});
   const delTag=id=>mut(d=>{d.tags=d.tags.filter(t=>t.id!==id);d.cards=d.cards.map(c=>({...c,tagIds:c.tagIds.filter(x=>x!==id)}));});
-  const upCol=(id,k,v)=>mut(d=>{if(!d.cols)d.cols=DEFAULT_COLS.map(c=>({...c}));const col=d.cols.find(c=>c.id===id);if(col)col[k]=v;});
-  const upConf=(k,v)=>mut(d=>{if(!d.config)d.config={};d.config[k]=v;});
-  const cols=D.cols||DEFAULT_COLS;
+
+  const addRow=()=>mut(d=>{const last=d.rows[d.rows.length-1];d.rows.push({id:"r"+uid(),label:"Nueva etapa",y:(last?last.y+last.h:0)+40,h:160});});
+  const upRow=(id,k,v)=>mut(d=>{const r=d.rows.find(r=>r.id===id);if(r)r[k]=v;});
+  const delRow=id=>mut(d=>{d.rows=d.rows.filter(r=>r.id!==id);d.cards=d.cards.map(c=>({...c,rowId:c.rowId===id?null:c.rowId}));});
+
+  const upPillar=(id,k,v)=>mut(d=>{const p=d.pillars.find(p=>p.id===id);if(p)p[k]=v;});
+  const upConf=(k,v)=>mut(d=>{d.config[k]=v;});
+
   return(
-    <div style={{width:300,background:"#0d1520",borderLeft:"2px solid #1e2d40",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
-      <div style={{padding:"12px 16px",borderBottom:"1px solid #1e2d40",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-        <span style={{fontSize:"11px",letterSpacing:"2px",color:"#34d399",fontWeight:700}}>⚙ CONFIGURACIÓN</span>
-        <button onClick={onClose} style={{background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:"18px",lineHeight:1,padding:0}}>✕</button>
+    <div style={{width:300,background:"#161b22",borderLeft:"1px solid #21262d",display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+      <div style={{padding:"12px 14px",borderBottom:"1px solid #21262d",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <span style={{fontSize:11,letterSpacing:"1px",color:"#3fb950",fontWeight:700}}>⚙ CONFIGURACIÓN</span>
+        <button onClick={onClose} style={{background:"none",border:"none",color:"#484f58",cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>✕</button>
       </div>
-      <div style={{flex:1,overflow:"auto",padding:16,display:"flex",flexDirection:"column",gap:22}}>
+      <div style={{flex:1,overflow:"auto",padding:14,display:"flex",flexDirection:"column",gap:20}}>
 
-        {/* Access passwords */}
-        <Sec title="CONTRASEÑAS DE ACCESO">
-          <p style={{fontSize:"9px",color:"#334155",marginBottom:12,lineHeight:1.6}}>Comparte la contraseña de Seguimiento para acceso de lectura, y la de Editor solo con quien necesite modificar.</p>
-          <Fld label="CONTRASEÑA — SEGUIMIENTO">
-            <input type="text" value={D.config?.passSegui||""} onChange={e=>upConf("passSegui",e.target.value)} style={{...INP,borderColor:"#92400e66"}}/>
-          </Fld>
-          <div style={{height:10}}/>
-          <Fld label="CONTRASEÑA — EDITOR">
-            <input type="text" value={D.config?.passEditor||""} onChange={e=>upConf("passEditor",e.target.value)} style={{...INP,borderColor:"#065f4666"}}/>
-          </Fld>
+        <Sec title="CONTRASEÑAS">
+          <Fld label="SEGUIMIENTO"><input value={D.config?.passSegui||""} onChange={e=>upConf("passSegui",e.target.value)} style={INP}/></Fld>
+          <div style={{height:8}}/>
+          <Fld label="EDITOR"><input value={D.config?.passEditor||""} onChange={e=>upConf("passEditor",e.target.value)} style={INP}/></Fld>
         </Sec>
 
-        {/* Columns */}
-        <Sec title="COLUMNAS — COLOR">
-          {cols.map(col=>(
-            <div key={col.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              <input type="color" value={col.color} onChange={e=>upCol(col.id,"color",e.target.value)} style={{width:30,height:30,border:"2px solid #1e2d40",background:"none",cursor:"pointer",padding:3,borderRadius:4,flexShrink:0}}/>
-              <div style={{flex:1}}>
-                <div style={{fontSize:"12px",fontWeight:600,color:"#94a3b8"}}>{col.label}</div>
-                {col.grp&&<div style={{fontSize:"8px",color:"#475569"}}>Grupo: Sistemas</div>}
-              </div>
-              <div style={{width:20,height:20,borderRadius:3,background:col.color,border:"1px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
+        <Sec title="PILARES — COLOR">
+          {D.pillars.map(p=>(
+            <div key={p.id} style={{display:"flex",alignItems:"center",gap:7,marginBottom:7}}>
+              <input type="color" value={p.hl} onChange={e=>upPillar(p.id,"hl",e.target.value)}
+                style={{width:28,height:28,border:"2px solid #21262d",borderRadius:4,flexShrink:0,background:"none",cursor:"pointer",padding:2}}/>
+              <span style={{fontSize:12,color:p.hl,fontWeight:600,flex:1}}>{p.label}</span>
             </div>
           ))}
         </Sec>
 
-        {/* Owners */}
-        <Sec title="OWNERS / RESPONSABLES">
+        <Sec title="ETAPAS DEL CICLO">
+          {D.rows.map(r=>(
+            <div key={r.id} style={{display:"flex",gap:5,marginBottom:6,alignItems:"center"}}>
+              <input value={r.label} onChange={e=>upRow(r.id,"label",e.target.value)} style={{...INP,flex:1,padding:"4px 7px",fontSize:11}}/>
+              <button onClick={()=>delRow(r.id)} style={{background:"none",border:"1px solid #21262d",color:"#484f58",cursor:"pointer",padding:"3px 7px",borderRadius:3,fontSize:11,flexShrink:0}}>✕</button>
+            </div>
+          ))}
+          <button onClick={addRow} style={{...BTN,width:"100%",borderStyle:"dashed",padding:"5px"}}>+ etapa</button>
+        </Sec>
+
+        <Sec title="OWNERS">
           {D.owners.map(o=>(
-            <div key={o.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
-              <input type="color" value={o.color} onChange={e=>upOwner(o.id,"color",e.target.value)} style={{width:30,height:30,border:"2px solid #1e2d40",background:"none",cursor:"pointer",padding:3,borderRadius:4,flexShrink:0}}/>
-              <input value={o.name} onChange={e=>upOwner(o.id,"name",e.target.value)} style={{...INP,flex:1,padding:"5px 8px",borderColor:o.color+"55"}}/>
-              <button onClick={()=>delOwner(o.id)} style={{background:"none",border:"1px solid #1e2d40",color:"#4a1010",cursor:"pointer",padding:"4px 8px",borderRadius:3,fontSize:"11px",flexShrink:0}}>✕</button>
+            <div key={o.id} style={{display:"flex",gap:6,marginBottom:6,alignItems:"center"}}>
+              <input type="color" value={o.color} onChange={e=>upOwner(o.id,"color",e.target.value)}
+                style={{width:28,height:28,border:"2px solid #21262d",borderRadius:4,flexShrink:0,background:"none",cursor:"pointer",padding:2}}/>
+              <input value={o.name} onChange={e=>upOwner(o.id,"name",e.target.value)} style={{...INP,flex:1,padding:"4px 7px",fontSize:11,borderColor:o.color+"66"}}/>
+              <button onClick={()=>delOwner(o.id)} style={{background:"none",border:"1px solid #21262d",color:"#484f58",cursor:"pointer",padding:"3px 7px",borderRadius:3,fontSize:11,flexShrink:0}}>✕</button>
             </div>
           ))}
-          <button onClick={addOwner} style={{...BTN,width:"100%",marginTop:4,padding:"7px",borderStyle:"dashed"}}>+ AÑADIR OWNER</button>
+          <button onClick={addOwner} style={{...BTN,width:"100%",borderStyle:"dashed",padding:"5px"}}>+ owner</button>
         </Sec>
 
-        {/* Tags */}
         <Sec title="ETIQUETAS">
-          <p style={{fontSize:"9px",color:"#334155",marginBottom:10,lineHeight:1.6}}>◆ Publicada = visible en Vista pública · Interna = solo Editor y Seguimiento.</p>
+          <p style={{fontSize:9,color:"#484f58",marginBottom:8,lineHeight:1.5}}>◆ Publicada = visible en capa pública</p>
           {D.tags.map(t=>(
-            <div key={t.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
-              <input type="color" value={t.color} onChange={e=>upTag(t.id,"color",e.target.value)} style={{width:30,height:30,border:"2px solid #1e2d40",background:"none",cursor:"pointer",padding:3,borderRadius:4,flexShrink:0}}/>
-              <input value={t.name} onChange={e=>upTag(t.id,"name",e.target.value)} style={{...INP,flex:1,padding:"5px 8px",borderColor:t.color+"55"}}/>
+            <div key={t.id} style={{display:"flex",gap:6,marginBottom:7,alignItems:"center"}}>
+              <input type="color" value={t.color} onChange={e=>upTag(t.id,"color",e.target.value)}
+                style={{width:28,height:28,border:"2px solid #21262d",borderRadius:4,flexShrink:0,background:"none",cursor:"pointer",padding:2}}/>
+              <input value={t.name} onChange={e=>upTag(t.id,"name",e.target.value)} style={{...INP,flex:1,padding:"4px 7px",fontSize:11,borderColor:t.color+"66"}}/>
               <button onClick={()=>upTag(t.id,"tipo",t.tipo==="publicada"?"interna":"publicada")}
-                title={t.tipo==="publicada"?"Cambiar a interna":"Cambiar a publicada"}
-                style={{background:t.tipo==="publicada"?"#052e18":"#1a2535",border:`1px solid ${t.tipo==="publicada"?"#166534":"#253347"}`,color:t.tipo==="publicada"?"#34d399":"#475569",cursor:"pointer",padding:"3px 7px",borderRadius:3,fontSize:"9px",flexShrink:0,fontWeight:700}}>
-                {t.tipo==="publicada"?"◆ PUB":"INT"}
+                style={{background:t.tipo==="publicada"?"#0d2818":"#1c2128",border:`1px solid ${t.tipo==="publicada"?"#238636":"#30363d"}`,color:t.tipo==="publicada"?"#3fb950":"#484f58",cursor:"pointer",padding:"3px 6px",borderRadius:3,fontSize:8,fontWeight:700,flexShrink:0}}>
+                {t.tipo==="publicada"?"◆":"○"}
               </button>
-              <button onClick={()=>delTag(t.id)} style={{background:"none",border:"1px solid #1e2d40",color:"#4a1010",cursor:"pointer",padding:"4px 7px",borderRadius:3,fontSize:"11px",flexShrink:0}}>✕</button>
+              <button onClick={()=>delTag(t.id)} style={{background:"none",border:"1px solid #21262d",color:"#484f58",cursor:"pointer",padding:"3px 7px",borderRadius:3,fontSize:11,flexShrink:0}}>✕</button>
             </div>
           ))}
-          <button onClick={addTag} style={{...BTN,width:"100%",marginTop:4,padding:"7px",borderStyle:"dashed"}}>+ AÑADIR ETIQUETA</button>
+          <button onClick={addTag} style={{...BTN,width:"100%",borderStyle:"dashed",padding:"5px"}}>+ etiqueta</button>
         </Sec>
       </div>
     </div>
   );
 }
 
-// ── Micro
-const Fld=({label,children})=>(<div><div style={{fontSize:"8px",letterSpacing:"2px",color:"#2d4060",marginBottom:5,fontWeight:700}}>{label}</div>{children}</div>);
-const Sec=({title,children})=>(<div><div style={{fontSize:"8px",letterSpacing:"3px",color:"#2d4060",marginBottom:10,paddingBottom:6,borderBottom:"1px solid #1e2d40",fontWeight:700}}>{title}</div>{children}</div>);
-const Pill=({children,color,active,onClick})=>(<button onClick={onClick} style={{fontSize:"9px",padding:"3px 10px",borderRadius:20,border:`1.5px solid ${color}`,background:active?color:"transparent",color:active?"#fff":color,cursor:"pointer",transition:"all .15s",fontFamily:"inherit",fontWeight:600,lineHeight:1.4}}>{children}</button>);
-const VD=()=><div style={{width:1,height:28,background:"#1e2d40",margin:"0 4px",flexShrink:0}}/>;
+// ── Login Modal ───────────────────────────────────────────────────────────────
+function LoginModal({D,onLogin,onClose}){
+  const [pass,setPass]=useState("");
+  const [err,setErr]=useState(false);
+  const check=()=>{
+    if(pass===D.config?.passEditor){onLogin(L.E);return;}
+    if(pass===D.config?.passSegui){onLogin(L.S);return;}
+    setErr(true);setTimeout(()=>setErr(false),1500);
+  };
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:"#161b22",border:"1px solid #30363d",borderRadius:10,padding:28,width:320,display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{fontSize:9,letterSpacing:"4px",color:"#388bfd",textAlign:"center"}}>ACCESO RESTRINGIDO</div>
+        <div style={{fontSize:18,fontWeight:700,color:"#e6edf3",textAlign:"center"}}>Introduce la contraseña</div>
+        <input type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr(false);}}
+          onKeyDown={e=>e.key==="Enter"&&check()} placeholder="Contraseña…" autoFocus
+          style={{...INP,fontSize:14,padding:"9px 12px",textAlign:"center",letterSpacing:"3px",borderColor:err?"#f85149":"#30363d"}}/>
+        {err&&<div style={{fontSize:11,color:"#f85149",textAlign:"center"}}>Contraseña incorrecta</div>}
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={onClose} style={{flex:1,...BTN,padding:"9px"}}>Cancelar</button>
+          <button onClick={check} style={{flex:2,background:"#1f6feb",border:"none",color:"#fff",padding:"9px",cursor:"pointer",fontSize:12,borderRadius:5,fontFamily:"inherit",fontWeight:700}}>Acceder</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Micro components ──────────────────────────────────────────────────────────
+const Fld=({label,children})=>(<div><div style={{fontSize:"7px",letterSpacing:"2px",color:"#484f58",marginBottom:4,fontWeight:700}}>{label}</div>{children}</div>);
+const Sec=({title,children})=>(<div><div style={{fontSize:"8px",letterSpacing:"3px",color:"#30363d",marginBottom:9,paddingBottom:5,borderBottom:"1px solid #21262d",fontWeight:700}}>{title}</div>{children}</div>);
+const Chip=({children,color,active,onClick})=>(<button onClick={onClick} style={{fontSize:9,padding:"2px 9px",borderRadius:20,border:`1.5px solid ${color}`,background:active?color:"transparent",color:active?"#fff":color,cursor:"pointer",transition:"all .12s",fontFamily:"inherit",fontWeight:600,lineHeight:1.4}}>{children}</button>);
+const Toggle=({active,color,onClick,label})=>(<button onClick={onClick} style={{flex:1,fontSize:9,padding:"4px 8px",borderRadius:5,border:`1px solid ${active?color:"#30363d"}`,background:active?color+"22":"transparent",color:active?color:"#484f58",cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:"0.3px",transition:"all .15s"}}>{label}</button>);
+const INP={background:"#0d1117",border:"1px solid #30363d",color:"#e6edf3",padding:"6px 8px",fontSize:11,borderRadius:4,fontFamily:"inherit",outline:"none",width:"100%",boxSizing:"border-box"};
+const BTN={background:"transparent",border:"1px solid #30363d",color:"#8b949e",cursor:"pointer",padding:"4px 10px",fontSize:9,letterSpacing:"0.5px",borderRadius:4,fontFamily:"inherit"};
+const ICONBTN={background:"#161b22",border:"1px solid #30363d",color:"#8b949e",cursor:"pointer",width:28,height:28,borderRadius:4,fontSize:14,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"};
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
