@@ -1,0 +1,431 @@
+Product Definition v1
+
+Mapa de Transformación Operativa RRHH
+
+1. Propósito del producto
+
+La herramienta es un canvas visual de transformación operativa de RRHH.
+
+Sirve para mostrar, en una única vista, qué piezas necesita RRHH para operar de forma coherente, gobernada y controlada.
+
+Debe permitir:
+
+* visualizar el avance de la transformación
+* evidenciar dependencias
+* mostrar bloqueos
+* guiar conversaciones ejecutivas
+* identificar piezas críticas pendientes
+* enlazar documentación operativa
+
+No es:
+
+* un gestor de tareas
+* un Jira
+* un Planner
+* un repositorio documental
+* un Gantt detallado
+* una herramienta de ticketing
+
+Frase guía:
+
+Qué piezas necesita RRHH para operar bien, cuáles ya están disponibles y qué está bloqueando el avance.
+
+⸻
+
+2. Modelo conceptual
+
+2.1 Filas
+
+Las filas representan fases o ámbitos de la operativa de RRHH.
+
+Ejemplos:
+
+* Alta / Contratación
+* Onboarding
+* Cambios contractuales
+* Retribución
+* Desempeño
+* Formación
+* Promoción
+* Movilidad interna
+* Expatriación
+* Desvinculación
+
+Deben ser configurables, porque el modelo puede evolucionar.
+
+⸻
+
+2.2 Columnas
+
+Las columnas representan las capas necesarias para que una operativa esté correctamente definida.
+
+Columnas definitivas:
+
+1. Políticas
+    Definen qué se puede hacer, qué criterios aplican y bajo qué condiciones.
+2. Procesos
+    Definen cómo se ejecuta la operativa.
+3. Sistemas
+    Herramientas o soluciones que permiten ejecutar lo definido.
+4. Gobierno y Control
+    Reglas de control, auditorías, calidad del dato y monitorización.
+
+Se elimina Eficiencia como columna porque era un cajón de sastre y no una capa estructural.
+
+⸻
+
+3. Unidad principal: tarjeta
+
+Una tarjeta representa una pieza operativa de RRHH que debe existir, estar definida, gobernada y disponible.
+
+Ejemplos:
+
+* Política de selección
+* Proceso de alta
+* Carga masiva de empleados
+* Control de calidad de datos de formación
+* Validación mensual de datos retributivos
+* Modelo de gobierno de cambios contractuales
+
+Una tarjeta NO debe representar tareas pequeñas.
+
+Incorrecto:
+
+* “Enviar correo a IT”
+* “Revisar Excel”
+* “Agendar reunión”
+* “Preguntar a Legal”
+
+Correcto:
+
+* “Proceso de alta masiva”
+* “Política de movilidad internacional”
+* “Control de calidad de datos de formación”
+
+⸻
+
+4. Estados de tarjeta
+
+Estados permitidos:
+
+1. No iniciado
+    La pieza está identificada, pero no se ha trabajado.
+2. En ejecución
+    La pieza se está definiendo, construyendo o preparando.
+3. Bloqueado
+    La pieza no puede avanzar por una dependencia externa o interna relevante.
+4. Completado
+    La pieza existe, está definida, disponible para usuarios y comunicada.
+
+Regla importante:
+
+Completado no significa “hemos trabajado en ello”. Significa que ya está definido y a disposición.
+
+⸻
+
+5. Bloqueos
+
+El bloqueo debe ser una señal visual, no el centro del producto.
+
+Un bloqueo representa:
+
+algo necesario para avanzar que está en el tejado de alguien o de otra área.
+
+Ejemplos:
+
+* pendiente IT
+* pendiente Legal
+* pendiente decisión Dirección
+* pendiente proveedor
+* pendiente dato fuente
+* pendiente validación país
+
+El bloqueo debe poder tener:
+
+* descripción breve
+* área/persona bloqueante
+* fecha orientativa, opcional
+* relación con una tarjeta principal
+
+No deben crearse tarjetas operativas para cada bloqueo salvo caso excepcional.
+
+⸻
+
+6. Dependencias
+
+Una flecha representa un flujo de habilitación operativa.
+
+Es decir:
+
+sin la pieza anterior, la siguiente no puede hacerse bien o queda incompleta.
+
+Las dependencias deben mostrarse todas, pero de forma visualmente suave para no saturar.
+
+Interacción clave:
+
+* vista normal: dependencias visibles pero suaves
+* al seleccionar una tarjeta: se ilumina todo el flujo relacionado
+* resto del canvas se atenúa
+
+Esto es una funcionalidad central del producto.
+
+⸻
+
+7. Owner
+
+El owner de una tarjeta es:
+
+la persona o área responsable de definir, mantener y asegurar que esa pieza funciona.
+
+No es necesariamente:
+
+* quien ejecuta la tarea
+* quien desarrolla técnicamente
+* quien desbloquea
+* quien aprueba
+
+El color principal de la tarjeta debe representar el owner.
+
+⸻
+
+8. Etiquetas
+
+Las etiquetas son personalizables y sirven para clasificar sin endurecer el modelo.
+
+Usos recomendados:
+
+* Quick win
+* Crítico
+* Dirección
+* Dependencia IT
+* Riesgo dato
+* Comunicación pendiente
+* Países
+* Prioritario
+* Estructural
+
+Las etiquetas no deben sustituir campos estructurales esenciales como estado, owner o columna.
+
+⸻
+
+9. Documentación
+
+La herramienta solo debe enlazar documentación.
+
+Cada tarjeta puede tener una URL.
+
+No debe:
+
+* almacenar documentos
+* convertirse en repositorio
+* duplicar SharePoint
+* mostrar contenido largo
+
+Regla:
+
+La tarjeta explica qué pieza existe. El enlace lleva al documento donde vive el detalle.
+
+⸻
+
+10. Avance
+
+El avance se mide por flujo o por conjunto de tarjetas.
+
+Criterio:
+
+avance = porcentaje de tarjetas completadas dentro del ámbito analizado.
+
+Ejemplos:
+
+* avance por fila
+* avance por columna
+* avance por owner
+* avance por flujo seleccionado
+* avance global
+
+No se debe medir por tareas pequeñas.
+
+⸻
+
+11. Roadmap temporal
+
+El producto debe permitir roadmap trimestral, pero no debe forzar fechas desde el inicio.
+
+Campo recomendado:
+
+* trimestre objetivo: 2026 Q1, 2026 Q2, etc.
+
+No usar todavía:
+
+* Gantt
+* fechas diarias
+* dependencias por calendario
+* planificación detallada
+
+La temporalidad debe ser orientativa.
+
+⸻
+
+12. Vista principal
+
+La vista principal debe ser limpia.
+
+Debe mostrar siempre:
+
+* título de tarjeta
+* owner
+* estado
+* etiquetas
+* señal de bloqueo si existe
+* enlace si existe
+
+No debe mostrar por defecto:
+
+* descripciones largas
+* comentarios
+* tareas
+* histórico
+* fechas detalladas
+
+⸻
+
+13. Vista de detalle
+
+Al abrir una tarjeta debe verse:
+
+* título
+* descripción
+* fila
+* columna
+* owner
+* estado
+* etiquetas
+* URL
+* bloqueo, si existe
+* dependencias entrantes
+* dependencias salientes
+* trimestre objetivo, opcional
+
+⸻
+
+14. Vista pública
+
+La vista pública es para consulta del equipo de RRHH.
+
+Debe permitir:
+
+* ver el mapa
+* consultar tarjetas publicadas
+* abrir enlaces
+* entender avance general
+* ver bloqueos relevantes
+
+No debe permitir:
+
+* editar
+* cambiar estados
+* modificar dependencias
+* alterar configuración
+
+⸻
+
+15. Reporting ejecutivo mínimo
+
+Debe existir una lectura rápida con:
+
+* tarjetas completadas / totales
+* tarjetas en ejecución
+* tarjetas bloqueadas
+* top bloqueos
+* avance por columna
+* avance por fila
+* avance por owner
+* tarjetas críticas
+
+Esto puede ser una vista dashboard posterior, no necesariamente MVP inicial.
+
+⸻
+
+16. Reglas de producto
+
+Reglas obligatorias:
+
+1. Una tarjeta = una pieza operativa.
+2. No crear tarjetas para tareas menores.
+3. No duplicar tarjetas.
+4. Si una pieza afecta varias fases, se ubica en su lugar principal y se conecta con dependencias.
+5. Las flechas representan habilitación operativa.
+6. Los bloqueos se asocian a tarjetas, no se convierten en backlog.
+7. El canvas debe guiar conversación, no sustituir gestión de proyectos.
+8. La vista limpia manda sobre la exhaustividad.
+9. Gobierno y Control solo incluye verificación, monitorización, auditoría y calidad.
+10. Eficiencia no es columna.
+
+⸻
+
+17. MVP funcional
+
+El MVP debe incluir:
+
+1. Canvas con 4 columnas definitivas.
+2. Filas configurables.
+3. Tarjetas con:
+    * título
+    * descripción
+    * owner
+    * estado
+    * etiquetas
+    * URL
+    * bloqueo
+    * trimestre objetivo
+4. Dependencias entre tarjetas.
+5. Iluminación de flujo al seleccionar tarjeta.
+6. Filtros por owner, estado y etiquetas.
+7. Vista pública / editor.
+8. Guardado actual en Supabase/localStorage.
+9. Exportación CSV actualizada.
+
+⸻
+
+18. Fuera de alcance por ahora
+
+No construir todavía:
+
+* gestor de tareas
+* comentarios tipo chat
+* histórico complejo
+* Gantt
+* permisos avanzados
+* multiusuario real
+* workflows de aprobación
+* carga documental
+* notificaciones
+* automatizaciones
+* KPIs complejos
+* dashboard sofisticado
+
+⸻
+
+19. Dirección para Claude
+
+Claude no debe “mejorar el HTML actual” añadiendo parches.
+
+Debe ejecutar en este orden:
+
+1. Ajustar modelo de datos.
+2. Migrar columnas a:
+    * Políticas
+    * Procesos
+    * Sistemas
+    * Gobierno y Control
+3. Eliminar Eficiencia.
+4. Separar estado, owner, etiquetas y bloqueo.
+5. Mejorar visualización de dependencias.
+6. Añadir iluminación de flujo.
+7. Actualizar panel lateral.
+8. Actualizar export/import CSV.
+9. Solo después plantear vistas adicionales.
+
+Instrucción clave para Claude:
+
+No conviertas la herramienta en un gestor de tareas. Mantén el canvas como producto principal y usa los datos para reforzar claridad ejecutiva.
