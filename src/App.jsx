@@ -1,12 +1,47 @@
 import { COLUMNS } from './constants/columns'
-import { DEFAULT_ROWS } from './constants/rows'
+import { useCanvas } from './hooks/useCanvas'
 import Canvas from './components/Canvas/Canvas'
+import { createCard } from './models/card'
+import { getPillarX, getRowY, CARD_W, CARD_PADDING } from './utils/layout'
 
-// Commit 01: scaffold visible.
-// App muestra el canvas vacío con la estructura base correcta.
-// Sin estado, sin persistencia, sin tarjetas — eso llega en commit 02.
+// Commit 02: modelo de datos + persistencia.
+// App usa useCanvas() para cargar/guardar estado real.
+// Canvas recibe filas y anchos de columna desde el estado persistido.
 
 export default function App() {
+  const { state, mut, loading, saved, saveOk } = useCanvas()
+
+  // ── Columnas: fijas en constantes + anchos persistibles en estado
+  const columns = COLUMNS.map(c => ({
+    ...c,
+    w: state?.colWidths?.[c.id] ?? c.w,
+  }))
+
+  // ── Handlers de canvas
+  const handleColumnResize = (id, w) =>
+    mut(d => { d.colWidths[id] = w })
+
+  const handleRowResize = (id, h) =>
+    mut(d => { const r = d.rows.find(r => r.id === id); if (r) r.h = h })
+
+  const handleAddCard = (x, y, columnId, rowId) => {
+    const card = createCard({ x, y, columnId, rowId })
+    mut(d => d.cards.push(card))
+  }
+
+  // ── Pantalla de carga
+  if (loading) return (
+    <div style={{
+      height: '100vh', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', flexDirection: 'column', gap: 12,
+      background: '#0d1117',
+    }}>
+      <div style={{ fontSize: 11, color: '#484f58', letterSpacing: '3px' }}>
+        CARGANDO…
+      </div>
+    </div>
+  )
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
@@ -37,13 +72,22 @@ export default function App() {
         }}>
           PÚBLICO
         </span>
+        {/* Indicador de guardado — visible mientras no hay header real */}
+        <span style={{
+          fontSize: 9, marginLeft: 'auto', color:
+            saved ? (saveOk ? '#3fb950' : '#f0883e') : '#f0883e',
+        }}>
+          {saved ? (saveOk ? '☁ guardado' : '⚠ solo local') : '⏳ guardando…'}
+        </span>
       </div>
 
-      {/* Canvas con la estructura base */}
       <Canvas
-        columns={COLUMNS}
-        rows={DEFAULT_ROWS}
-        canEdit={false}
+        columns={columns}
+        rows={state.rows}
+        canEdit={true}
+        onAddCard={handleAddCard}
+        onColumnResize={handleColumnResize}
+        onRowResize={handleRowResize}
       />
 
     </div>
