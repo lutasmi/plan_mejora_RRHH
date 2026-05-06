@@ -1,82 +1,61 @@
+import { useState } from 'react'
 import { COLUMNS } from './constants/columns'
 import { useCanvas } from './hooks/useCanvas'
 import Canvas from './components/Canvas/Canvas'
 import { createCard } from './models/card'
-import { getPillarX, getRowY, CARD_W, CARD_PADDING } from './utils/layout'
-
-// Commit 02: modelo de datos + persistencia.
-// App usa useCanvas() para cargar/guardar estado real.
-// Canvas recibe filas y anchos de columna desde el estado persistido.
 
 export default function App() {
   const { state, mut, loading, saved, saveOk } = useCanvas()
+  const [selCard, setSelCard] = useState(null)
+  const [hlCard,  setHlCard]  = useState(null)
 
-  // ── Columnas: fijas en constantes + anchos persistibles en estado
-  const columns = COLUMNS.map(c => ({
-    ...c,
-    w: state?.colWidths?.[c.id] ?? c.w,
-  }))
+  const columns = COLUMNS.map(c => ({ ...c, w: state?.colWidths?.[c.id] ?? c.w }))
 
-  // ── Handlers de canvas
-  const handleColumnResize = (id, w) =>
-    mut(d => { d.colWidths[id] = w })
+  // getRelated simple — BFS completo llega en commit 04
+  const getRelated = id => {
+    if (!id || !state) return new Set()
+    const s = new Set([id])
+    const card = state.cards.find(c => c.id === id)
+    if (!card) return s
+    ;(card.deps ?? []).forEach(d => s.add(d))
+    state.cards.forEach(c => { if ((c.deps ?? []).includes(id)) s.add(c.id) })
+    return s
+  }
+  const related = getRelated(hlCard)
 
-  const handleRowResize = (id, h) =>
-    mut(d => { const r = d.rows.find(r => r.id === id); if (r) r.h = h })
+  const handleColumnResize = (id, w) => mut(d => { d.colWidths[id] = w })
+  const handleRowResize    = (id, h) => mut(d => { const r = d.rows.find(r => r.id === id); if (r) r.h = h })
 
   const handleAddCard = (x, y, columnId, rowId) => {
     const card = createCard({ x, y, columnId, rowId })
     mut(d => d.cards.push(card))
+    setSelCard(card.id)
   }
 
-  // ── Pantalla de carga
+  const handleMoveCard   = (id, x, y) => mut(d => { const c = d.cards.find(c => c.id === id); if (c) { c.x = x; c.y = y } })
+  const handleSelectCard = id => { setSelCard(id); if (!id) setHlCard(null) }
+  const handleHlCard     = id => setHlCard(prev => prev === id ? null : id)
+
   if (loading) return (
-    <div style={{
-      height: '100vh', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', flexDirection: 'column', gap: 12,
-      background: '#0d1117',
-    }}>
-      <div style={{ fontSize: 11, color: '#484f58', letterSpacing: '3px' }}>
-        CARGANDO…
-      </div>
+    <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0d1117' }}>
+      <div style={{ fontSize: 11, color: '#484f58', letterSpacing: '3px' }}>CARGANDO…</div>
     </div>
   )
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-      {/* Header mínimo — se sustituye en commit 06 */}
-      <div style={{
-        background: '#161b22',
-        borderBottom: '1px solid #21262d',
-        padding: '7px 14px',
-        flexShrink: 0,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-      }}>
+      {/* Header provisional */}
+      <div style={{ background: '#161b22', borderBottom: '1px solid #21262d', padding: '7px 14px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
         <div>
-          <div style={{ fontSize: 8, letterSpacing: '4px', color: '#388bfd', marginBottom: 1 }}>
-            RRHH · CANVAS
-          </div>
+          <div style={{ fontSize: 8, letterSpacing: '4px', color: '#388bfd', marginBottom: 1 }}>RRHH · CANVAS</div>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#e6edf3', lineHeight: 1 }}>
-            Mapa de Transformación{' '}
-            <span style={{ fontSize: 9, color: '#30363d', fontWeight: 400 }}>v0.1</span>
+            Mapa de Transformación <span style={{ fontSize: 9, color: '#30363d', fontWeight: 400 }}>v0.1</span>
           </div>
         </div>
-        <span style={{
-          fontSize: 8, padding: '2px 8px', borderRadius: 20,
-          background: '#1f6feb22', color: '#1f6feb',
-          border: '1px solid #1f6feb55', fontWeight: 700,
-          marginLeft: 4,
-        }}>
-          PÚBLICO
+        <span style={{ fontSize: 8, padding: '2px 8px', borderRadius: 20, background: '#23863622', color: '#3fb950', border: '1px solid #23863655', fontWeight: 700, marginLeft: 4 }}>
+          EDITOR
         </span>
-        {/* Indicador de guardado — visible mientras no hay header real */}
-        <span style={{
-          fontSize: 9, marginLeft: 'auto', color:
-            saved ? (saveOk ? '#3fb950' : '#f0883e') : '#f0883e',
-        }}>
+        <span style={{ fontSize: 9, marginLeft: 'auto', color: saved ? (saveOk ? '#3fb950' : '#f0883e') : '#f0883e' }}>
           {saved ? (saveOk ? '☁ guardado' : '⚠ solo local') : '⏳ guardando…'}
         </span>
       </div>
@@ -84,12 +63,20 @@ export default function App() {
       <Canvas
         columns={columns}
         rows={state.rows}
+        cards={state.cards}
+        owners={state.owners}
+        tags={state.tags}
         canEdit={true}
+        selCard={selCard}
+        hlCard={hlCard}
+        related={related}
+        onSelectCard={handleSelectCard}
+        onHlCard={handleHlCard}
+        onMoveCard={handleMoveCard}
         onAddCard={handleAddCard}
         onColumnResize={handleColumnResize}
         onRowResize={handleRowResize}
       />
-
     </div>
   )
 }
