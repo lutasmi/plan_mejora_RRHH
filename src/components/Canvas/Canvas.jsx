@@ -34,9 +34,6 @@ export default function Canvas({
   const drag = useRef(null)
   const [vp, setVp] = useState({ x: ROW_LABEL_W, y: 0, scale: 1 })
 
-  // ── DIAGNÓSTICO 4: Canvas recibe cards ──────────────────────────────────
-  console.log('[DIAG-4] Canvas render → cards prop:', Array.isArray(cards), cards.length, cards)
-
   const rows = computedRows(rawRows, cards)
   const TW   = totalCanvasW(columns) + 200
   const TH   = totalCanvasH(rows)    + 200
@@ -62,80 +59,63 @@ export default function Canvas({
 
   const toCanvas = (sx, sy) => ({ x: (sx - vp.x) / vp.scale, y: (sy - vp.y) / vp.scale })
 
+  // SVG: pan + col/row resize
   const onBgDown = e => {
-    drag.current = { type: 'pan', startX: e.clientX, startY: e.clientY, ox: vp.x, oy: vp.y }
+    drag.current = { type:'pan', startX:e.clientX, startY:e.clientY, ox:vp.x, oy:vp.y }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
   const onBgMove = e => {
     if (!drag.current) return
     const { type } = drag.current
     if (type === 'pan') {
-      setVp(v => ({ ...v,
-        x: drag.current.ox + (e.clientX - drag.current.startX),
-        y: drag.current.oy + (e.clientY - drag.current.startY),
-      }))
+      setVp(v => ({ ...v, x: drag.current.ox + (e.clientX - drag.current.startX), y: drag.current.oy + (e.clientY - drag.current.startY) }))
     } else if (type === 'col-resize') {
-      const dx = (e.clientX - drag.current.startX) / vp.scale
-      onColumnResize?.(drag.current.id, Math.max(180, drag.current.origW + dx))
+      onColumnResize?.(drag.current.id, Math.max(180, drag.current.origW + (e.clientX - drag.current.startX) / vp.scale))
     } else if (type === 'row-resize') {
-      const dy = (e.clientY - drag.current.startY) / vp.scale
-      onRowResize?.(drag.current.id, Math.max(120, drag.current.origH + dy))
+      onRowResize?.(drag.current.id, Math.max(120, drag.current.origH + (e.clientY - drag.current.startY) / vp.scale))
     }
   }
   const onBgUp = () => { drag.current = null }
 
   const onBgDbl = e => {
-    // ── DIAGNÓSTICO: dblclick llega al SVG ────────────────────────────────
-    console.log('[DIAG-DBL] dblclick en SVG — canEdit:', canEdit, 'onAddCard:', !!onAddCard)
     if (!canEdit || !onAddCard) return
-
     const rect = containerRef.current.getBoundingClientRect()
-    const sx_ev = e.clientX - rect.left
-    const sy_ev = e.clientY - rect.top
-    const { x: cx, y: cy } = toCanvas(sx_ev, sy_ev)
-
-    console.log('[DIAG-DBL] screen coords en container:', {sx_ev, sy_ev})
-    console.log('[DIAG-DBL] canvas coords:', {cx, cy})
-    console.log('[DIAG-DBL] vp:', vp)
-
-    const ci = columns.findIndex((col, i) => {
-      const px = getPillarX(columns, i)
-      return cx >= px && cx < px + col.w
-    })
+    const { x: cx, y: cy } = toCanvas(e.clientX - rect.left, e.clientY - rect.top)
+    const ci = columns.findIndex((col, i) => { const px = getPillarX(columns, i); return cx >= px && cx < px + col.w })
     let rowY = HDR_H, foundRow = null
-    for (const row of rows) {
-      if (cy >= rowY && cy < rowY + row.h) { foundRow = row; break }
-      rowY += row.h
-    }
-
-    console.log('[DIAG-DBL] columnId:', columns[ci]?.id ?? null, '  rowId:', foundRow?.id ?? null)
+    for (const row of rows) { if (cy >= rowY && cy < rowY + row.h) { foundRow = row; break } rowY += row.h }
     onAddCard(cx, cy, columns[ci]?.id ?? null, foundRow?.id ?? null)
   }
 
+  // Card drag
   const cardDragStart = (e, card) => {
     if (!canEdit) return
     e.stopPropagation()
-    drag.current = { type: 'card', id: card.id, startX: e.clientX, startY: e.clientY, ox: card.x, oy: card.y }
+    drag.current = { type:'card', id:card.id, startX:e.clientX, startY:e.clientY, ox:card.x, oy:card.y }
     containerRef.current?.setPointerCapture?.(e.pointerId)
   }
   const onContainerMove = e => {
     if (!drag.current || drag.current.type !== 'card') return
-    const dx = (e.clientX - drag.current.startX) / vp.scale
-    const dy = (e.clientY - drag.current.startY) / vp.scale
-    onMoveCard?.(drag.current.id, drag.current.ox + dx, drag.current.oy + dy)
+    onMoveCard?.(drag.current.id,
+      drag.current.ox + (e.clientX - drag.current.startX) / vp.scale,
+      drag.current.oy + (e.clientY - drag.current.startY) / vp.scale)
   }
   const onContainerUp = () => { drag.current = null }
 
+  // Flechas de dependencia — sin bridges
   const arrows = []
   cards.forEach(card => {
     ;(card.deps ?? []).forEach(depId => {
       const dep = cards.find(c => c.id === depId)
       if (!dep) return
-      const ax = dep.x + CARD_W, ay = dep.y + 40
-      const bx = card.x,         by = card.y + 40
-      const vis = isVisible(card) && isVisible(dep)
       const isHl = Boolean(hlCard && related.has(depId) && related.has(card.id))
-      arrows.push({ key: `${depId}:${card.id}`, ax, ay, bx, by, vis, isHl })
+      arrows.push({
+        key: `${depId}:${card.id}`,
+        ax: dep.x + CARD_W, ay: dep.y + 40,
+        bx: card.x,         by: card.y + 40,
+        vis: isVisible(card) && isVisible(dep),
+        isHl,
+      })
     })
   })
 
@@ -147,13 +127,12 @@ export default function Canvas({
       onPointerUp={onContainerUp}
       onPointerCancel={onContainerUp}
     >
+      {/* SVG: grid + flechas */}
       <svg
         style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', cursor:'grab' }}
         onPointerDown={onBgDown} onPointerMove={onBgMove} onPointerUp={onBgUp}
         onDoubleClick={onBgDbl}
-        onClick={e => {
-          if (['svg','rect','line','text','g'].includes(e.target.tagName)) onSelectCard?.(null)
-        }}
+        onClick={e => { if (['svg','rect','line','text','g'].includes(e.target.tagName)) onSelectCard?.(null) }}
       >
         <defs>
           <marker id="arr"    markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
@@ -225,17 +204,13 @@ export default function Canvas({
         </g>
       </svg>
 
-      {/* ── HTML cards layer ────────────────────────────────────────────── */}
+      {/* HTML cards layer */}
       <div style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', pointerEvents:'none', overflow:'hidden' }}>
         {cards.map(card => {
           const owner    = owners.find(o => o.id === card.ownerId) ?? owners[0]
           const cardTags = tags.filter(t => card.tagIds.includes(t.id))
           const sx = card.x * vp.scale + vp.x
           const sy = card.y * vp.scale + vp.y
-
-          // ── DIAGNÓSTICO 5: ¿el render de cada Card se ejecuta? ────────
-          console.log('[DIAG-5] renderizando card:', card.id, '→ sx:', sx, 'sy:', sy, 'vp:', vp)
-
           return (
             <div key={card.id}
               style={{
