@@ -5,6 +5,7 @@ import Canvas from './components/Canvas/Canvas'
 import CardDetail from './components/CardDetail/CardDetail'
 import Header from './components/Header/Header'
 import LoginModal from './components/LoginModal/LoginModal'
+import SettingsPanel from './components/SettingsPanel/SettingsPanel'
 import { createCard } from './models/card'
 import { getRelated } from './utils/graph'
 
@@ -12,28 +13,25 @@ export default function App() {
   const { state, mut, loading, saved, saveOk } = useCanvas()
 
   // ── Modo ──────────────────────────────────────────────────────────────────
-  const [mode,      setMode]      = useState('public')  // 'public' | 'editor'
+  const [mode,      setMode]      = useState('public')
   const [showLogin, setShowLogin] = useState(false)
-
   const isEditor = mode === 'editor'
 
   const handleEnterEditor = () => {
-    if (!state?.passEditor) {
-      // Sin contraseña configurada → acceso directo
-      setMode('editor')
-    } else {
-      setShowLogin(true)
-    }
+    if (!state?.passEditor) setMode('editor')
+    else setShowLogin(true)
   }
-
   const handleLogin = pwd => {
-    if (pwd === state.passEditor) {
-      setMode('editor')
-      setShowLogin(false)
-      return true
-    }
+    if (pwd === state.passEditor) { setMode('editor'); setShowLogin(false); return true }
     return false
   }
+  const handleExitEditor = () => { setMode('public'); setSelCard(null); setShowSettings(false) }
+
+  // ── Settings ──────────────────────────────────────────────────────────────
+  const [showSettings, setShowSettings] = useState(false)
+
+  // Al abrir settings cerramos el panel de tarjeta
+  const handleOpenSettings = () => { setSelCard(null); setShowSettings(true) }
 
   // ── Filtros ───────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState({ statuses: [], ownerIds: [], tagIds: [] })
@@ -41,25 +39,17 @@ export default function App() {
   const toggleFilter = (type, value) =>
     setFilters(f => ({
       ...f,
-      [type]: f[type].includes(value)
-        ? f[type].filter(v => v !== value)
-        : [...f[type], value],
+      [type]: f[type].includes(value) ? f[type].filter(v => v !== value) : [...f[type], value],
     }))
-
   const clearFilters = () => setFilters({ statuses: [], ownerIds: [], tagIds: [] })
 
-  // AND entre tipos, OR dentro del mismo tipo
   const isVisible = card => {
-    if (filters.statuses.length && !filters.statuses.includes(card.status))         return false
-    if (filters.ownerIds.length && !filters.ownerIds.includes(card.ownerId))        return false
-    if (filters.tagIds.length   && !filters.tagIds.some(t => card.tagIds.includes(t))) return false
+    if (filters.statuses.length && !filters.statuses.includes(card.status))              return false
+    if (filters.ownerIds.length && !filters.ownerIds.includes(card.ownerId))             return false
+    if (filters.tagIds.length   && !filters.tagIds.some(t => card.tagIds.includes(t)))  return false
     return true
   }
-
-  const hasFilter =
-    filters.statuses.length > 0 ||
-    filters.ownerIds.length > 0 ||
-    filters.tagIds.length   > 0
+  const hasFilter = filters.statuses.length > 0 || filters.ownerIds.length > 0 || filters.tagIds.length > 0
 
   // ── Selección / highlight ─────────────────────────────────────────────────
   const [selCard, setSelCard] = useState(null)
@@ -77,11 +67,16 @@ export default function App() {
     const card = createCard({ x, y, columnId, rowId })
     mut(d => { d.cards.push(card) })
     setSelCard(card.id)
+    setShowSettings(false)
   }
 
   const handleMoveCard   = (id, x, y) => mut(d => { const c = d.cards.find(c => c.id === id); if (c) { c.x = x; c.y = y } })
-  const handleSelectCard = id => { setSelCard(id); if (!id) setHlCard(null) }
-  const handleHlCard     = id => setHlCard(prev => prev === id ? null : id)
+  const handleSelectCard = id => {
+    setSelCard(id)
+    if (id) setShowSettings(false) // cerrar settings al seleccionar tarjeta
+    if (!id) setHlCard(null)
+  }
+  const handleHlCard = id => setHlCard(prev => prev === id ? null : id)
 
   // ── Handlers CardDetail ───────────────────────────────────────────────────
   const handleUpdateCard = updated =>
@@ -110,7 +105,7 @@ export default function App() {
       <Header
         mode={mode}
         onEnterEditor={handleEnterEditor}
-        onExitEditor={() => { setMode('public'); setSelCard(null) }}
+        onExitEditor={handleExitEditor}
         filters={filters}
         onToggle={toggleFilter}
         onClear={clearFilters}
@@ -118,9 +113,9 @@ export default function App() {
         tags={state.tags}
         saved={saved}
         saveOk={saveOk}
+        onOpenSettings={handleOpenSettings}
       />
 
-      {/* Canvas + panel lateral */}
       <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
         <Canvas
           columns={columns}
@@ -142,22 +137,29 @@ export default function App() {
           onRowResize={handleRowResize}
         />
 
-        {selectedCard && (
-          <CardDetail
-            card={selectedCard}
-            allCards={state.cards}
-            owners={state.owners}
-            tags={state.tags}
-            rows={state.rows}
-            canEdit={isEditor}
-            onUpdate={handleUpdateCard}
-            onDelete={handleDeleteCard}
-            onClose={() => setSelCard(null)}
-          />
-        )}
+        {/* Panel derecho: CardDetail o Settings — nunca ambos */}
+        {showSettings && isEditor
+          ? <SettingsPanel
+              state={state}
+              mut={mut}
+              onClose={() => setShowSettings(false)}
+            />
+          : selectedCard
+            ? <CardDetail
+                card={selectedCard}
+                allCards={state.cards}
+                owners={state.owners}
+                tags={state.tags}
+                rows={state.rows}
+                canEdit={isEditor}
+                onUpdate={handleUpdateCard}
+                onDelete={handleDeleteCard}
+                onClose={() => setSelCard(null)}
+              />
+            : null
+        }
       </div>
 
-      {/* Modal de contraseña */}
       {showLogin && (
         <LoginModal
           onConfirm={handleLogin}
