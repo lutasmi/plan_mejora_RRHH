@@ -51,14 +51,6 @@ export default function Card({ card, owner, tags, isSel, isHl, isDim, isFiltered
         >◎</button>
       </div>
 
-      {column && (
-        <div style={{ fontSize:'8px', padding:'1px 5px', borderRadius:3,
-          background:column.color, color:column.hl, border:`1px solid ${column.border}`,
-          display:'inline-block', marginBottom:5, fontWeight:600 }}>
-          {column.label}
-        </div>
-      )}
-
       <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom: tags?.length ? 4 : 0 }}>
         <div style={{ width:6, height:6, borderRadius:'50%', background:owner?.color ?? '#6e7681', flexShrink:0 }} />
         <span style={{ fontSize:10, color:owner?.color ?? '#6e7681', fontWeight:500 }}>{owner?.name ?? '—'}</span>

@@ -91,16 +91,32 @@ export default function Canvas({
   const cardDragStart = (e, card) => {
     if (!canEdit) return
     e.stopPropagation()
-    drag.current = { type:'card', id:card.id, startX:e.clientX, startY:e.clientY, ox:card.x, oy:card.y }
-    containerRef.current?.setPointerCapture?.(e.pointerId)
+    // NO setPointerCapture aquí — solo registramos el inicio.
+    // setPointerCapture se hace solo si hay movimiento real (umbral 5px).
+    // Si no hay movimiento, onContainerUp lo trata como click → llama onSelectCard.
+    drag.current = { type:'card', id:card.id, startX:e.clientX, startY:e.clientY, ox:card.x, oy:card.y, dragging:false }
   }
   const onContainerMove = e => {
     if (!drag.current || drag.current.type !== 'card') return
+    const dx = e.clientX - drag.current.startX
+    const dy = e.clientY - drag.current.startY
+    if (!drag.current.dragging) {
+      // Activar drag solo al superar umbral de 5px
+      if (Math.sqrt(dx*dx + dy*dy) < 5) return
+      drag.current.dragging = true
+      containerRef.current?.setPointerCapture?.(e.pointerId)
+    }
     onMoveCard?.(drag.current.id,
-      drag.current.ox + (e.clientX - drag.current.startX) / vp.scale,
-      drag.current.oy + (e.clientY - drag.current.startY) / vp.scale)
+      drag.current.ox + dx / vp.scale,
+      drag.current.oy + dy / vp.scale)
   }
-  const onContainerUp = () => { drag.current = null }
+  const onContainerUp = e => {
+    if (drag.current?.type === 'card' && !drag.current.dragging) {
+      // Movimiento menor al umbral → fue un click, no un drag
+      onSelectCard?.(drag.current.id)
+    }
+    drag.current = null
+  }
 
   // Flechas de dependencia — sin bridges
   const arrows = []
@@ -136,7 +152,7 @@ export default function Canvas({
       >
         <defs>
           <marker id="arr"    markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-            <path d="M0,1.5 L7,4 L0,6.5 Z" fill="#388bfd" opacity="0.8" />
+            <path d="M0,1.5 L7,4 L0,6.5 Z" fill="#1f4a7a" opacity="0.9" />
           </marker>
           <marker id="arr-hl" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
             <path d="M0,1.5 L7,4 L0,6.5 Z" fill="#f0883e" />
@@ -193,9 +209,9 @@ export default function Canvas({
             return (
               <path key={a.key}
                 d={bezier(a.ax, a.ay, a.bx, a.by)}
-                stroke={a.isHl ? '#f0883e' : '#388bfd'}
-                strokeWidth={a.isHl ? 2 : 1.5} fill="none"
-                strokeOpacity={dim ? 0.06 : a.vis ? 0.55 : 0.12}
+                stroke={a.isHl ? '#f0883e' : '#1f4a7a'}
+                strokeWidth={a.isHl ? 2 : 1} fill="none"
+                strokeOpacity={dim ? 0.04 : a.vis ? 0.3 : 0.08}
                 markerEnd={a.isHl ? 'url(#arr-hl)' : 'url(#arr)'}
               />
             )
@@ -222,7 +238,6 @@ export default function Canvas({
                 cursor: canEdit ? 'grab' : 'pointer',
               }}
               onPointerDown={e => { cardDragStart(e, card) }}
-              onClick={e => { e.stopPropagation(); onSelectCard?.(card.id) }}
             >
               <Card
                 card={card}

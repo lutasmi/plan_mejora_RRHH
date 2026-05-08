@@ -2,19 +2,74 @@ import { useState } from 'react'
 import { COLUMNS } from './constants/columns'
 import { useCanvas } from './hooks/useCanvas'
 import Canvas from './components/Canvas/Canvas'
+import CardDetail from './components/CardDetail/CardDetail'
+import Header from './components/Header/Header'
+import LoginModal from './components/LoginModal/LoginModal'
 import { createCard } from './models/card'
 import { getRelated } from './utils/graph'
 
 export default function App() {
   const { state, mut, loading, saved, saveOk } = useCanvas()
+
+  // ── Modo ──────────────────────────────────────────────────────────────────
+  const [mode,      setMode]      = useState('public')  // 'public' | 'editor'
+  const [showLogin, setShowLogin] = useState(false)
+
+  const isEditor = mode === 'editor'
+
+  const handleEnterEditor = () => {
+    if (!state?.passEditor) {
+      // Sin contraseña configurada → acceso directo
+      setMode('editor')
+    } else {
+      setShowLogin(true)
+    }
+  }
+
+  const handleLogin = pwd => {
+    if (pwd === state.passEditor) {
+      setMode('editor')
+      setShowLogin(false)
+      return true
+    }
+    return false
+  }
+
+  // ── Filtros ───────────────────────────────────────────────────────────────
+  const [filters, setFilters] = useState({ statuses: [], ownerIds: [], tagIds: [] })
+
+  const toggleFilter = (type, value) =>
+    setFilters(f => ({
+      ...f,
+      [type]: f[type].includes(value)
+        ? f[type].filter(v => v !== value)
+        : [...f[type], value],
+    }))
+
+  const clearFilters = () => setFilters({ statuses: [], ownerIds: [], tagIds: [] })
+
+  // AND entre tipos, OR dentro del mismo tipo
+  const isVisible = card => {
+    if (filters.statuses.length && !filters.statuses.includes(card.status))         return false
+    if (filters.ownerIds.length && !filters.ownerIds.includes(card.ownerId))        return false
+    if (filters.tagIds.length   && !filters.tagIds.some(t => card.tagIds.includes(t))) return false
+    return true
+  }
+
+  const hasFilter =
+    filters.statuses.length > 0 ||
+    filters.ownerIds.length > 0 ||
+    filters.tagIds.length   > 0
+
+  // ── Selección / highlight ─────────────────────────────────────────────────
   const [selCard, setSelCard] = useState(null)
   const [hlCard,  setHlCard]  = useState(null)
 
-  const columns = COLUMNS.map(c => ({ ...c, w: state?.colWidths?.[c.id] ?? c.w }))
+  const columns      = COLUMNS.map(c => ({ ...c, w: state?.colWidths?.[c.id] ?? c.w }))
+  const related      = getRelated(hlCard, state?.cards ?? [])
+  const selectedCard = state?.cards.find(c => c.id === selCard) ?? null
 
-  // BFS completo upstream + downstream (commit 04)
-  const related = getRelated(hlCard, state?.cards ?? [])
-
+  // ── Handlers canvas ───────────────────────────────────────────────────────
   const handleColumnResize = (id, w) => mut(d => { d.colWidths[id] = w })
   const handleRowResize    = (id, h) => mut(d => { const r = d.rows.find(r => r.id === id); if (r) r.h = h })
 
@@ -28,47 +83,88 @@ export default function App() {
   const handleSelectCard = id => { setSelCard(id); if (!id) setHlCard(null) }
   const handleHlCard     = id => setHlCard(prev => prev === id ? null : id)
 
+  // ── Handlers CardDetail ───────────────────────────────────────────────────
+  const handleUpdateCard = updated =>
+    mut(d => { const i = d.cards.findIndex(c => c.id === updated.id); if (i !== -1) d.cards[i] = updated })
+
+  const handleDeleteCard = id => {
+    mut(d => {
+      d.cards = d.cards.filter(c => c.id !== id)
+      d.cards.forEach(c => { c.deps = (c.deps ?? []).filter(dep => dep !== id) })
+    })
+    setSelCard(null)
+    setHlCard(null)
+  }
+
+  // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) return (
-    <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#0d1117' }}>
+    <div style={{ height:'100vh', display:'flex', alignItems:'center',
+      justifyContent:'center', background:'#0d1117' }}>
       <div style={{ fontSize:11, color:'#484f58', letterSpacing:'3px' }}>CARGANDO…</div>
     </div>
   )
 
   return (
     <div style={{ height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
-      {/* Header provisional — se sustituye en commit 06 */}
-      <div style={{ background:'#161b22', borderBottom:'1px solid #21262d', padding:'7px 14px', flexShrink:0, display:'flex', alignItems:'center', gap:10 }}>
-        <div>
-          <div style={{ fontSize:8, letterSpacing:'4px', color:'#388bfd', marginBottom:1 }}>RRHH · CANVAS</div>
-          <div style={{ fontSize:15, fontWeight:700, color:'#e6edf3', lineHeight:1 }}>
-            Mapa de Transformación <span style={{ fontSize:9, color:'#30363d', fontWeight:400 }}>v0.1</span>
-          </div>
-        </div>
-        <span style={{ fontSize:8, padding:'2px 8px', borderRadius:20, background:'#23863622', color:'#3fb950', border:'1px solid #23863655', fontWeight:700, marginLeft:4 }}>
-          EDITOR
-        </span>
-        <span style={{ fontSize:9, marginLeft:'auto', color: saved ? (saveOk ? '#3fb950' : '#f0883e') : '#f0883e' }}>
-          {saved ? (saveOk ? '☁ guardado' : '⚠ solo local') : '⏳ guardando…'}
-        </span>
-      </div>
 
-      <Canvas
-        columns={columns}
-        rows={state.rows}
-        cards={state.cards}
+      <Header
+        mode={mode}
+        onEnterEditor={handleEnterEditor}
+        onExitEditor={() => { setMode('public'); setSelCard(null) }}
+        filters={filters}
+        onToggle={toggleFilter}
+        onClear={clearFilters}
         owners={state.owners}
         tags={state.tags}
-        canEdit={true}
-        selCard={selCard}
-        hlCard={hlCard}
-        related={related}
-        onSelectCard={handleSelectCard}
-        onHlCard={handleHlCard}
-        onMoveCard={handleMoveCard}
-        onAddCard={handleAddCard}
-        onColumnResize={handleColumnResize}
-        onRowResize={handleRowResize}
+        saved={saved}
+        saveOk={saveOk}
       />
+
+      {/* Canvas + panel lateral */}
+      <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
+        <Canvas
+          columns={columns}
+          rows={state.rows}
+          cards={state.cards}
+          owners={state.owners}
+          tags={state.tags}
+          canEdit={isEditor}
+          selCard={selCard}
+          hlCard={hlCard}
+          related={related}
+          hasFilter={hasFilter}
+          isVisible={isVisible}
+          onSelectCard={handleSelectCard}
+          onHlCard={handleHlCard}
+          onMoveCard={handleMoveCard}
+          onAddCard={handleAddCard}
+          onColumnResize={handleColumnResize}
+          onRowResize={handleRowResize}
+        />
+
+        {selectedCard && (
+          <CardDetail
+            card={selectedCard}
+            allCards={state.cards}
+            owners={state.owners}
+            tags={state.tags}
+            rows={state.rows}
+            canEdit={isEditor}
+            onUpdate={handleUpdateCard}
+            onDelete={handleDeleteCard}
+            onClose={() => setSelCard(null)}
+          />
+        )}
+      </div>
+
+      {/* Modal de contraseña */}
+      {showLogin && (
+        <LoginModal
+          onConfirm={handleLogin}
+          onCancel={() => setShowLogin(false)}
+        />
+      )}
+
     </div>
   )
 }
