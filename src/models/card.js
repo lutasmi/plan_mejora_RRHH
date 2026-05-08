@@ -1,36 +1,30 @@
 import { uid } from '../utils/uid'
 
-// Shape completo de una tarjeta según Product Definition v1.
-//
-// Sin: steps, bridges, publicado (booleano), completado (booleano), pillarId (renombrado a columnId)
-// Con: status (enum), blocker (objeto), quarter (texto libre), columnId, rowId
-
 export const createCard = (overrides = {}) => ({
   id:       uid(),
   name:     'Nueva pieza operativa',
   desc:     '',
   url:      '',
 
-  columnId: null,          // id de columna (pol | pro | sis | gov)
-  rowId:    null,          // id de fila
+  columnId: null,
+  rowId:    null,
 
-  ownerId:  'o1',          // referencia a owner
-  tagIds:   [],            // array de ids de etiqueta
+  ownerId:  'o1',
+  tagIds:   [],
 
-  status:   'no_iniciado', // no_iniciado | en_ejecucion | bloqueado | completado
+  status:   'no_iniciado',
 
-  blocker: {               // bloqueo asociado a la tarjeta (no es el estado, es el objeto)
+  blocker: {
     active:      false,
     description: '',
     area:        '',
     date:        '',
   },
 
-  deps:    [],             // ids de tarjetas de las que esta depende (salientes)
+  deps:    [],
+  quarter: '',
 
-  quarter: '',             // campo libre: "2026 Q1", "2026 Q2", etc.
-
-  x: 0,                   // posición en canvas
-  y: 0,
+  offsetX: 20,   // posición relativa al borde izquierdo de la columna
+  offsetY: 20,   // posición relativa al borde superior de la fila
   ...overrides,
 })
