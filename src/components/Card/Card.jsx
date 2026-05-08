@@ -1,9 +1,11 @@
-import { getStatus } from '../../constants/statuses'
-import { COLUMNS } from '../../constants/columns'
+// Card no importa COLUMNS — las recibe de Canvas como prop.
+// Esto permite que los colores y labels personalizados se reflejen.
 
-export default function Card({ card, owner, tags, isSel, isHl, isDim, isFiltered, canEdit, onSelect, onHlCard, onDragStart }) {
+import { getStatus } from '../../constants/statuses'
+
+export default function Card({ card, columns = [], owner, tags, isSel, isHl, isDim, isFiltered, canEdit, onSelect, onHlCard, onDragStart }) {
   const status  = getStatus(card.status)
-  const column  = COLUMNS.find(c => c.id === card.columnId)
+  const column  = columns.find(c => c.id === card.columnId)
   const blocked = card.status === 'bloqueado' || card.blocker?.active
   const done    = card.status === 'completado'
 

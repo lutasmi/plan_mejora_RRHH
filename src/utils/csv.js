@@ -25,7 +25,11 @@ function esc(v) {
   return s
 }
 
-export function exportCSV(cards) {
+// exportCSV(cards, columns)
+// columns: array resuelto de resolveColumns() — se usa para añadir
+// columna_label al CSV (informativo, el import usa columna_id como clave).
+export function exportCSV(cards, columns = []) {
+  const colById = Object.fromEntries(columns.map(c => [c.id, c]))
   const rows = [HEADERS.join(SEP)]
   for (const c of cards) {
     rows.push([
@@ -51,8 +55,8 @@ export function exportCSV(cards) {
   return rows.join('\n')
 }
 
-export function downloadCSV(cards, filename = 'canvas-rrhh.csv') {
-  const content = exportCSV(cards)
+export function downloadCSV(cards, columns = [], filename = 'canvas-rrhh.csv') {
+  const content = exportCSV(cards, columns)
   const blob    = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' })
   const url     = URL.createObjectURL(blob)
   const a       = document.createElement('a')

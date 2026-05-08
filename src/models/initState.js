@@ -1,5 +1,5 @@
 import { DEFAULT_ROWS } from '../constants/rows'
-import { COLUMNS } from '../constants/columns'
+import { COLUMNS_DEFAULT as COLUMNS } from '../constants/columns'
 import { DEFAULT_OWNERS } from '../constants/owners'
 import { DEFAULT_TAGS } from '../constants/tags'
 
@@ -12,6 +12,7 @@ export const initState = () => ({
   owners:  DEFAULT_OWNERS.map(o => ({ ...o })),
   tags:    DEFAULT_TAGS.map(t => ({ ...t })),
   cards:   [],
-  passEditor: '',           // contraseña de acceso al modo editor (vacía = sin protección)
-  colWidths: Object.fromEntries(COLUMNS.map(c => [c.id, c.w])), // anchos persistibles
+  passEditor: '',
+  colWidths:  Object.fromEntries(COLUMNS.map(c => [c.id, c.w])),
+  colConfigs: {},   // { pol: { label?, hl? }, pro: { ... }, ... } — solo overrides
 })
