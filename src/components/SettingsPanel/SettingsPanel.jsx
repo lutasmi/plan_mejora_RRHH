@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { COLUMNS } from '../../constants/columns'
 import { uid } from '../../utils/uid'
+import { downloadCSV, importCSV } from '../../utils/csv'
 
 // ── Tokens ────────────────────────────────────────────────────────────────────
 const T = {
@@ -405,6 +406,157 @@ function SecuritySection({ passEditor, onChangePass }) {
   )
 }
 
+// ── Sección: Datos ────────────────────────────────────────────────────────────
+function DataSection({ cards, onImport }) {
+  const [open,    setOpen]    = useState(false)
+  const [mode,    setMode]    = useState('add')   // 'add' | 'replace'
+  const [msg,     setMsg]     = useState(null)     // {type:'ok'|'err'|'warn', text}
+  const [preview, setPreview] = useState(null)     // {cards, errors} antes de confirmar
+  const fileRef = useRef(null)
+
+  const handleExport = () => {
+    downloadCSV(cards, `canvas-rrhh-${new Date().toISOString().slice(0,10)}.csv`)
+  }
+
+  const handleFileChange = e => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const { cards: imported, errors } = importCSV(ev.target.result)
+      setPreview({ cards: imported, errors })
+      setMsg(null)
+    }
+    reader.readAsText(file, 'utf-8')
+    // Reset input para que el mismo archivo se pueda reimportar
+    e.target.value = ''
+  }
+
+  const handleConfirmImport = () => {
+    if (!preview) return
+    onImport(preview.cards, mode)
+    const n = preview.cards.length
+    const w = preview.errors.length
+    setMsg({
+      type: w > 0 ? 'warn' : 'ok',
+      text: `${n} tarjeta${n!==1?'s':''} importada${n!==1?'s':''}${w>0?` · ${w} fila${w!==1?'s':''} ignorada${w!==1?'s':''}`:''}`
+    })
+    setPreview(null)
+    setTimeout(() => setMsg(null), 4000)
+  }
+
+  const handleCancelPreview = () => setPreview(null)
+
+  return (
+    <div>
+      <SectionHeader label="Datos" open={open} onToggle={() => setOpen(o => !o)} />
+      {open && (
+        <div style={{ padding: '12px 16px' }}>
+
+          {/* Export */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 9, color: T.textGhost, marginBottom: 8 }}>
+              Exporta todas las tarjetas a CSV. El archivo incluye posición, estado, bloqueo y dependencias.
+            </div>
+            <button onClick={handleExport} disabled={cards.length === 0} style={{
+              width: '100%', padding: '7px', borderRadius: 5, cursor: cards.length ? 'pointer' : 'not-allowed',
+              background: '#21262d', border: `1px solid ${T.borderMid}`,
+              color: cards.length ? T.text : T.textGhost, fontSize: 11, fontWeight: 600,
+            }}>
+              ↓ Exportar CSV {cards.length > 0 && `(${cards.length} tarjeta${cards.length!==1?'s':''})`}
+            </button>
+          </div>
+
+          <div style={{ borderTop: `1px solid ${T.border}`, margin: '12px 0' }} />
+
+          {/* Import */}
+          <div>
+            <div style={{ fontSize: 9, color: T.textGhost, marginBottom: 8 }}>
+              Importa tarjetas desde un CSV con el mismo formato que el export.
+              Las columnas deben coincidir exactamente con la cabecera.
+            </div>
+
+            {/* Modo de importación */}
+            <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
+              {[['add','Añadir'],['replace','Reemplazar todo']].map(([val, lbl]) => (
+                <button key={val} onClick={() => setMode(val)} style={{
+                  flex: 1, padding: '5px', borderRadius: 5, cursor: 'pointer', fontSize: 10,
+                  border: `1px solid ${mode===val ? '#388bfd55' : T.borderMid}`,
+                  background: mode===val ? '#388bfd1a' : 'transparent',
+                  color: mode===val ? '#388bfd' : T.textDim, fontWeight: mode===val ? 600 : 400,
+                }}>{lbl}</button>
+              ))}
+            </div>
+
+            {mode === 'replace' && (
+              <div style={{ fontSize: 9, color: '#f0883e', marginBottom: 8,
+                padding: '5px 8px', background: '#2d1a0022', borderRadius: 4,
+                border: '1px solid #f0883e33' }}>
+                ⚠ Reemplazar eliminará todas las tarjetas actuales
+              </div>
+            )}
+
+            {/* Botón seleccionar archivo */}
+            {!preview && (
+              <>
+                <input ref={fileRef} type="file" accept=".csv,text/csv"
+                  onChange={handleFileChange} style={{ display: 'none' }} />
+                <button onClick={() => fileRef.current?.click()} style={{
+                  width: '100%', padding: '7px', borderRadius: 5, cursor: 'pointer',
+                  background: 'transparent', border: `1px dashed ${T.borderMid}`,
+                  color: T.textDim, fontSize: 11,
+                }}>
+                  ↑ Seleccionar archivo CSV
+                </button>
+              </>
+            )}
+
+            {/* Preview antes de confirmar */}
+            {preview && (
+              <div style={{ background: T.bgDeep, border: `1px solid ${T.borderMid}`,
+                borderRadius: 5, padding: '10px 12px', marginTop: 6 }}>
+                <div style={{ fontSize: 11, color: T.text, marginBottom: 4 }}>
+                  <strong>{preview.cards.length}</strong> tarjeta{preview.cards.length!==1?'s':''} listas para importar
+                </div>
+                {preview.errors.map((e, i) => (
+                  <div key={i} style={{ fontSize: 9, color: '#f0883e', marginBottom: 2 }}>⚠ {e}</div>
+                ))}
+                <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                  <button onClick={handleCancelPreview} style={{
+                    flex: 1, padding: '5px', borderRadius: 5, cursor: 'pointer',
+                    background: 'transparent', border: `1px solid ${T.borderMid}`,
+                    color: T.textDim, fontSize: 11,
+                  }}>Cancelar</button>
+                  <button onClick={handleConfirmImport}
+                    disabled={preview.cards.length === 0}
+                    style={{
+                      flex: 2, padding: '5px', borderRadius: 5, fontSize: 11, fontWeight: 600,
+                      cursor: preview.cards.length ? 'pointer' : 'not-allowed',
+                      background: '#388bfd22', border: '1px solid #388bfd55', color: '#388bfd',
+                    }}>
+                    Confirmar importación
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Feedback post-import */}
+            {msg && (
+              <div style={{ marginTop: 8, fontSize: 10, padding: '5px 8px', borderRadius: 4,
+                color: msg.type==='ok' ? '#3fb950' : '#f0883e',
+                background: msg.type==='ok' ? '#23863622' : '#f0883e22',
+                border: `1px solid ${msg.type==='ok' ? '#23863655' : '#f0883e44'}`,
+              }}>
+                {msg.type==='ok' ? '✓' : '⚠'} {msg.text}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── SettingsPanel ─────────────────────────────────────────────────────────────
 export default function SettingsPanel({ state, onClose, mut }) {
   // ── Filas ─────────────────────────────────────────────────────────────────
@@ -446,6 +598,21 @@ export default function SettingsPanel({ state, onClose, mut }) {
 
   const deleteTag = id =>
     mut(d => { d.tags = d.tags.filter(t => t.id !== id) })
+
+  // ── Import CSV ────────────────────────────────────────────────────────────
+  const importCards = (newCards, mode) => {
+    mut(d => {
+      const cards = newCards.map(c => ({
+        ...c,
+        id: uid(),  // siempre IDs nuevos para evitar colisiones
+      }))
+      if (mode === 'replace') {
+        d.cards = cards
+      } else {
+        d.cards = [...d.cards, ...cards]
+      }
+    })
+  }
 
   // ── Contraseña ────────────────────────────────────────────────────────────
   const changePass = pass =>
@@ -503,6 +670,7 @@ export default function SettingsPanel({ state, onClose, mut }) {
           passEditor={state.passEditor}
           onChangePass={changePass}
         />
+        <DataSection cards={state.cards} onImport={importCards} />
         <div style={{ height: 28 }} />
       </div>
     </div>
