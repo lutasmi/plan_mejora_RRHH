@@ -1,8 +1,8 @@
-// Constantes de layout del canvas
 export const ROW_LABEL_W = 148
-export const HDR_H = 44
-export const CARD_W = 210
+export const HDR_H       = 44
+export const CARD_W      = 210
 export const CARD_PADDING = 14
+export const CARD_MIN_H  = 80   // altura mínima estimada de una tarjeta renderizada
 
 // X absoluta donde empieza la columna idx
 export const getPillarX = (columns, idx) => {
@@ -18,23 +18,38 @@ export const getRowY = (rows, idx) => {
   return y
 }
 
-// Ancho total del canvas
 export const totalCanvasW = columns =>
   ROW_LABEL_W + columns.reduce((s, c) => s + c.w, 0)
 
-// Alto total del canvas
 export const totalCanvasH = rows =>
   HDR_H + rows.reduce((s, r) => s + r.h, 0)
 
-// Expande la altura de las filas para acomodar tarjetas fuera del límite
-export const computedRows = (rows, cards) =>
+// Resuelve la posición absoluta en canvas de una tarjeta a partir de
+// su columnId, rowId y offsets relativos.
+// Devuelve { x, y } listos para usar en el transform del wrapper HTML.
+export const resolveCardPos = (card, rows, columns) => {
+  const ci = columns.findIndex(c => c.id === card.columnId)
+  const ri = rows.findIndex(r => r.id === card.rowId)
+  const colX = ci >= 0 ? getPillarX(columns, ci) : ROW_LABEL_W
+  const rowY = ri >= 0 ? getRowY(rows, ri)        : HDR_H
+  return {
+    x: colX + (card.offsetX ?? 20),
+    y: rowY + (card.offsetY ?? 20),
+  }
+}
+
+// Expande la altura de las filas para acomodar tarjetas que sobresalen.
+// Usa resolveCardPos en vez de card.x/y.
+export const computedRows = (rows, cards, columns) =>
   rows.map((row, ri) => {
     const rowCards = cards.filter(c => c.rowId === row.id)
     if (!rowCards.length) return row
-    const rowY = getRowY(rows, ri)
-    let maxBottom = rowY + row.h
+    const rowY0  = getRowY(rows, ri)
+    let maxBottom = rowY0 + row.h
     rowCards.forEach(c => {
-      maxBottom = Math.max(maxBottom, c.y + 120 + CARD_PADDING)
+      if (!columns) return
+      const { y } = resolveCardPos(c, rows, columns)
+      maxBottom = Math.max(maxBottom, y + CARD_MIN_H + CARD_PADDING)
     })
-    return { ...row, h: Math.max(row.h, maxBottom - rowY) }
+    return { ...row, h: Math.max(row.h, maxBottom - rowY0) }
   })

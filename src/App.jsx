@@ -69,14 +69,15 @@ export default function App() {
     })
   const handleRowResize    = (id, h) => mut(d => { const r = d.rows.find(r => r.id === id); if (r) r.h = h })
 
-  const handleAddCard = (x, y, columnId, rowId) => {
-    const card = createCard({ x, y, columnId, rowId })
+  const handleAddCard = (columnId, rowId, offsetX = 20, offsetY = 20) => {
+    const card = createCard({ columnId, rowId, offsetX, offsetY })
     mut(d => { d.cards.push(card) })
     setSelCard(card.id)
     setShowSettings(false)
   }
 
-  const handleMoveCard   = (id, x, y) => mut(d => { const c = d.cards.find(c => c.id === id); if (c) { c.x = x; c.y = y } })
+  const handleMoveCard = (id, offsetX, offsetY) =>
+    mut(d => { const c = d.cards.find(c => c.id === id); if (c) { c.offsetX = offsetX; c.offsetY = offsetY } })
   const handleSelectCard = id => {
     setSelCard(id)
     if (id) setShowSettings(false) // cerrar settings al seleccionar tarjeta
@@ -86,7 +87,16 @@ export default function App() {
 
   // ── Handlers CardDetail ───────────────────────────────────────────────────
   const handleUpdateCard = updated =>
-    mut(d => { const i = d.cards.findIndex(c => c.id === updated.id); if (i !== -1) d.cards[i] = updated })
+    mut(d => {
+      const i = d.cards.findIndex(c => c.id === updated.id)
+      if (i === -1) return
+      const prev = d.cards[i]
+      // Reset offset si cambia la celda lógica — evita que la tarjeta quede fuera
+      if (updated.columnId !== prev.columnId || updated.rowId !== prev.rowId) {
+        updated = { ...updated, offsetX: 20, offsetY: 20 }
+      }
+      d.cards[i] = updated
+    })
 
   const handleDeleteCard = id => {
     mut(d => {

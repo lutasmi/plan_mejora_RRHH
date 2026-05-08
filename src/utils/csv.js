@@ -13,7 +13,7 @@ const HEADERS = [
   'id','nombre','descripcion','url',
   'columna_id','fila_id','owner_id',
   'status','bloqueado','bloqueo_desc','bloqueo_area','bloqueo_fecha',
-  'quarter','tag_ids','dep_ids','x','y',
+  'quarter','tag_ids','dep_ids','offsetX','offsetY',
 ]
 
 function esc(v) {
@@ -48,8 +48,8 @@ export function exportCSV(cards, columns = []) {
       c.quarter ?? '',
       (c.tagIds ?? []).join('|'),
       (c.deps   ?? []).join('|'),
-      String(Math.round(c.x)),
-      String(Math.round(c.y)),
+      String(Math.round(c.offsetX ?? 20)),
+      String(Math.round(c.offsetY ?? 20)),
     ].map(esc).join(SEP))
   }
   return rows.join('\n')
@@ -116,8 +116,9 @@ export function importCSV(text, { reuseIds = false } = {}) {
     const name = get(row, 'nombre').trim()
     if (!name) { errors.push(`Fila ${li + 1}: nombre vacío — ignorada`); continue }
 
-    const x = parseFloat(get(row, 'x')) || 0
-    const y = parseFloat(get(row, 'y')) || 0
+    // Lee offsetX/offsetY; acepta también x/y de CSVs exportados antes de este cambio
+    const offsetX = parseFloat(get(row, 'offsetX') || get(row, 'x')) || 20
+    const offsetY = parseFloat(get(row, 'offsetY') || get(row, 'y')) || 20
 
     const tagIds = get(row, 'tag_ids').split('|').map(s => s.trim()).filter(Boolean)
     const deps   = get(row, 'dep_ids').split('|').map(s => s.trim()).filter(Boolean)
@@ -144,7 +145,7 @@ export function importCSV(text, { reuseIds = false } = {}) {
       quarter:  get(row, 'quarter'),
       tagIds,
       deps,
-      x, y,
+      offsetX, offsetY,
     })
   }
 

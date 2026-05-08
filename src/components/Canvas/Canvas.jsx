@@ -1,7 +1,7 @@
 import { useRef, useLayoutEffect, useState } from 'react'
 import {
   getPillarX, getRowY, totalCanvasW, totalCanvasH, computedRows,
-  ROW_LABEL_W, HDR_H, CARD_W,
+  resolveCardPos, ROW_LABEL_W, HDR_H, CARD_W, CARD_MIN_H,
 } from '../../utils/layout'
 import Card from '../Card/Card'
 
@@ -34,10 +34,12 @@ export default function Canvas({
   const drag = useRef(null)
   const [vp, setVp] = useState({ x: ROW_LABEL_W, y: 0, scale: 1 })
 
-  const rows = computedRows(rawRows, cards)
+  // computedRows ahora recibe columns para resolver posiciones
+  const rows = computedRows(rawRows, cards, columns)
   const TW   = totalCanvasW(columns) + 200
   const TH   = totalCanvasH(rows)    + 200
 
+  // ── Wheel ──────────────────────────────────────────────────────────────────
   useLayoutEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -59,7 +61,7 @@ export default function Canvas({
 
   const toCanvas = (sx, sy) => ({ x: (sx - vp.x) / vp.scale, y: (sy - vp.y) / vp.scale })
 
-  // SVG: pan + col/row resize
+  // ── SVG: pan + resize ─────────────────────────────────────────────────────
   const onBgDown = e => {
     drag.current = { type:'pan', startX:e.clientX, startY:e.clientY, ox:vp.x, oy:vp.y }
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -68,7 +70,10 @@ export default function Canvas({
     if (!drag.current) return
     const { type } = drag.current
     if (type === 'pan') {
-      setVp(v => ({ ...v, x: drag.current.ox + (e.clientX - drag.current.startX), y: drag.current.oy + (e.clientY - drag.current.startY) }))
+      setVp(v => ({ ...v,
+        x: drag.current.ox + (e.clientX - drag.current.startX),
+        y: drag.current.oy + (e.clientY - drag.current.startY),
+      }))
     } else if (type === 'col-resize') {
       onColumnResize?.(drag.current.id, Math.max(180, drag.current.origW + (e.clientX - drag.current.startX) / vp.scale))
     } else if (type === 'row-resize') {
@@ -77,58 +82,102 @@ export default function Canvas({
   }
   const onBgUp = () => { drag.current = null }
 
+  // ── Doble clic: nueva tarjeta ─────────────────────────────────────────────
   const onBgDbl = e => {
     if (!canEdit || !onAddCard) return
     const rect = containerRef.current.getBoundingClientRect()
     const { x: cx, y: cy } = toCanvas(e.clientX - rect.left, e.clientY - rect.top)
-    const ci = columns.findIndex((col, i) => { const px = getPillarX(columns, i); return cx >= px && cx < px + col.w })
-    let rowY = HDR_H, foundRow = null
-    for (const row of rows) { if (cy >= rowY && cy < rowY + row.h) { foundRow = row; break } rowY += row.h }
-    onAddCard(cx, cy, columns[ci]?.id ?? null, foundRow?.id ?? null)
+
+    // Columna bajo el clic
+    const ci = columns.findIndex((col, i) => {
+      const px = getPillarX(columns, i)
+      return cx >= px && cx < px + col.w
+    })
+    const col = columns[ci]
+
+    // Fila bajo el clic
+    let rowY = HDR_H, foundRow = null, foundRi = -1
+    for (let i = 0; i < rows.length; i++) {
+      if (cy >= rowY && cy < rowY + rows[i].h) { foundRow = rows[i]; foundRi = i; break }
+      rowY += rows[i].h
+    }
+
+    // Calcular offset relativo a la celda, clampado a límites seguros
+    let offsetX = 20, offsetY = 20
+    if (col && foundRow) {
+      const colX = getPillarX(columns, ci)
+      const rY   = getRowY(rows, foundRi)
+      offsetX = Math.min(Math.max(0, cx - colX), Math.max(0, col.w - CARD_W))
+      offsetY = Math.min(Math.max(0, cy - rY),   Math.max(0, foundRow.h - CARD_MIN_H))
+    }
+
+    onAddCard(col?.id ?? null, foundRow?.id ?? null, offsetX, offsetY)
   }
 
-  // Card drag
+  // ── Card drag ─────────────────────────────────────────────────────────────
   const cardDragStart = (e, card) => {
     if (!canEdit) return
     e.stopPropagation()
-    // NO setPointerCapture aquí — solo registramos el inicio.
-    // setPointerCapture se hace solo si hay movimiento real (umbral 5px).
-    // Si no hay movimiento, onContainerUp lo trata como click → llama onSelectCard.
-    drag.current = { type:'card', id:card.id, startX:e.clientX, startY:e.clientY, ox:card.x, oy:card.y, dragging:false }
+    // Guardamos el offset relativo actual, no la posición absoluta
+    drag.current = {
+      type:    'card',
+      id:      card.id,
+      startX:  e.clientX,
+      startY:  e.clientY,
+      ox:      card.offsetX ?? 20,
+      oy:      card.offsetY ?? 20,
+      columnId: card.columnId,
+      rowId:    card.rowId,
+      dragging: false,
+    }
   }
+
   const onContainerMove = e => {
     if (!drag.current || drag.current.type !== 'card') return
     const dx = e.clientX - drag.current.startX
     const dy = e.clientY - drag.current.startY
     if (!drag.current.dragging) {
-      // Activar drag solo al superar umbral de 5px
       if (Math.sqrt(dx*dx + dy*dy) < 5) return
       drag.current.dragging = true
       containerRef.current?.setPointerCapture?.(e.pointerId)
     }
-    onMoveCard?.(drag.current.id,
-      drag.current.ox + dx / vp.scale,
-      drag.current.oy + dy / vp.scale)
+
+    // Calcular nuevo offset relativo
+    const rawOffsetX = drag.current.ox + dx / vp.scale
+    const rawOffsetY = drag.current.oy + dy / vp.scale
+
+    // Clamp a los límites de la celda lógica
+    const col = columns.find(c => c.id === drag.current.columnId)
+    const row = rows.find(r => r.id === drag.current.rowId)
+    const maxX = Math.max(0, (col?.w   ?? CARD_W)      - CARD_W)
+    const maxY = Math.max(0, (row?.h   ?? CARD_MIN_H)  - CARD_MIN_H)
+
+    const offsetX = Math.min(Math.max(0, rawOffsetX), maxX)
+    const offsetY = Math.min(Math.max(0, rawOffsetY), maxY)
+
+    onMoveCard?.(drag.current.id, offsetX, offsetY)
   }
+
   const onContainerUp = e => {
     if (drag.current?.type === 'card' && !drag.current.dragging) {
-      // Movimiento menor al umbral → fue un click, no un drag
       onSelectCard?.(drag.current.id)
     }
     drag.current = null
   }
 
-  // Flechas de dependencia — sin bridges
+  // ── Flechas ───────────────────────────────────────────────────────────────
   const arrows = []
   cards.forEach(card => {
     ;(card.deps ?? []).forEach(depId => {
       const dep = cards.find(c => c.id === depId)
       if (!dep) return
+      const a = resolveCardPos(dep,  rows, columns)
+      const b = resolveCardPos(card, rows, columns)
       const isHl = Boolean(hlCard && related.has(depId) && related.has(card.id))
       arrows.push({
         key: `${depId}:${card.id}`,
-        ax: dep.x + CARD_W, ay: dep.y + 40,
-        bx: card.x,         by: card.y + 40,
+        ax: a.x + CARD_W, ay: a.y + 40,
+        bx: b.x,          by: b.y + 40,
         vis: isVisible(card) && isVisible(dep),
         isHl,
       })
@@ -148,7 +197,9 @@ export default function Canvas({
         style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', cursor:'grab' }}
         onPointerDown={onBgDown} onPointerMove={onBgMove} onPointerUp={onBgUp}
         onDoubleClick={onBgDbl}
-        onClick={e => { if (['svg','rect','line','text','g'].includes(e.target.tagName)) onSelectCard?.(null) }}
+        onClick={e => {
+          if (['svg','rect','line','text','g'].includes(e.target.tagName)) onSelectCard?.(null)
+        }}
       >
         <defs>
           <marker id="arr"    markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
@@ -225,8 +276,9 @@ export default function Canvas({
         {cards.map(card => {
           const owner    = owners.find(o => o.id === card.ownerId) ?? owners[0]
           const cardTags = tags.filter(t => card.tagIds.includes(t.id))
-          const sx = card.x * vp.scale + vp.x
-          const sy = card.y * vp.scale + vp.y
+          const { x, y } = resolveCardPos(card, rows, columns)
+          const sx = x * vp.scale + vp.x
+          const sy = y * vp.scale + vp.y
           return (
             <div key={card.id}
               style={{
