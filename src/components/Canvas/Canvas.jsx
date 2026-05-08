@@ -241,6 +241,7 @@ export default function Canvas({
             >
               <Card
                 card={card}
+                columns={columns}
                 owner={owner}
                 tags={cardTags}
                 isSel={selCard === card.id}

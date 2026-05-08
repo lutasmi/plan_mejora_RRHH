@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { STATUSES } from '../../constants/statuses'
-import { COLUMNS } from '../../constants/columns'
 
 // ── Tokens ────────────────────────────────────────────────────────────────────
 const T = {
@@ -102,7 +101,7 @@ function ReadValue({ children, dim, color }) {
 }
 
 // ── Selector de dependencias ──────────────────────────────────────────────────
-function DepSelector({ candidates, selected, allCards, cardId, onToggle }) {
+function DepSelector({ candidates, selected, allCards, columns = [], cardId, onToggle }) {
   const [open,  setOpen]  = useState(false)
   const [query, setQuery] = useState('')
   const [cycleWarn, setCycleWarn] = useState(null) // id de la dep que causaría ciclo
@@ -129,7 +128,7 @@ function DepSelector({ candidates, selected, allCards, cardId, onToggle }) {
       {selectedCards.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 7 }}>
           {selectedCards.map(c => {
-            const col = COLUMNS.find(col => col.id === c.columnId)
+            const col = columns.find(col => col.id === c.columnId)
             return (
               <span key={c.id} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -207,7 +206,7 @@ function DepSelector({ candidates, selected, allCards, cardId, onToggle }) {
             {filtered.map(c => {
               const active  = selected.includes(c.id)
               const isCycle = !active && wouldCreateCycle(cardId, c.id, allCards)
-              const col     = COLUMNS.find(col => col.id === c.columnId)
+              const col     = columns.find(col => col.id === c.columnId)
               return (
                 <label key={c.id} style={{
                   display: 'flex', alignItems: 'flex-start', gap: 7, cursor: isCycle ? 'not-allowed' : 'pointer',
@@ -239,7 +238,7 @@ function DepSelector({ candidates, selected, allCards, cardId, onToggle }) {
 }
 
 // ── CardDetail ────────────────────────────────────────────────────────────────
-export default function CardDetail({ card, allCards, owners, tags, rows, canEdit, onUpdate, onDelete, onClose }) {
+export default function CardDetail({ card, allCards, columns = [], owners, tags, rows, canEdit, onUpdate, onDelete, onClose }) {
   const [draft, setDraft] = useState(null)
 
   useEffect(() => {
@@ -249,7 +248,7 @@ export default function CardDetail({ card, allCards, owners, tags, rows, canEdit
 
   if (!card || !draft) return null
 
-  const column = COLUMNS.find(c => c.id === draft.columnId)
+  const column = columns.find(c => c.id === draft.columnId)
   const owner  = owners.find(o => o.id === draft.ownerId)
   const status = STATUSES.find(s => s.id === draft.status) ?? STATUSES[0]
 
@@ -474,7 +473,7 @@ export default function CardDetail({ card, allCards, owners, tags, rows, canEdit
               <div style={{ marginBottom: 10 }}>
                 <SectionLabel>Columna</SectionLabel>
                 <Sel value={draft.columnId ?? ''} onChange={v => set('columnId', v)}
-                  options={[{ value:'', label:'—' }, ...COLUMNS.map(c => ({ value: c.id, label: c.label }))]} />
+                  options={[{ value:'', label:'—' }, ...columns.map(c => ({ value: c.id, label: c.label }))]} />
               </div>
               <div style={{ marginBottom: 10 }}>
                 <SectionLabel>Fase</SectionLabel>
@@ -507,6 +506,7 @@ export default function CardDetail({ card, allCards, owners, tags, rows, canEdit
                 candidates={depCandidates}
                 selected={draft.deps}
                 allCards={allCards}
+                columns={columns}
                 cardId={card.id}
                 onToggle={toggleDep}
               />
@@ -515,7 +515,7 @@ export default function CardDetail({ card, allCards, owners, tags, rows, canEdit
                   {draft.deps.map(depId => {
                     const dep = allCards.find(c => c.id === depId)
                     if (!dep) return null
-                    const col = COLUMNS.find(c => c.id === dep.columnId)
+                    const col = columns.find(c => c.id === dep.columnId)
                     return (
                       <div key={depId} style={{ display: 'flex', alignItems: 'center', gap: 6,
                         fontSize: 11, color: T.textMid }}>

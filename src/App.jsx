@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { COLUMNS } from './constants/columns'
+import { resolveColumns } from './constants/columns'
 import { useCanvas } from './hooks/useCanvas'
 import Canvas from './components/Canvas/Canvas'
 import CardDetail from './components/CardDetail/CardDetail'
@@ -55,12 +55,18 @@ export default function App() {
   const [selCard, setSelCard] = useState(null)
   const [hlCard,  setHlCard]  = useState(null)
 
-  const columns      = COLUMNS.map(c => ({ ...c, w: state?.colWidths?.[c.id] ?? c.w }))
+  const columns      = resolveColumns(state?.colConfigs, state?.colWidths)
   const related      = getRelated(hlCard, state?.cards ?? [])
   const selectedCard = state?.cards.find(c => c.id === selCard) ?? null
 
   // ── Handlers canvas ───────────────────────────────────────────────────────
   const handleColumnResize = (id, w) => mut(d => { d.colWidths[id] = w })
+  const handleUpdateColumn = (id, field, value) =>
+    mut(d => {
+      if (!d.colConfigs) d.colConfigs = {}
+      if (!d.colConfigs[id]) d.colConfigs[id] = {}
+      d.colConfigs[id][field] = value
+    })
   const handleRowResize    = (id, h) => mut(d => { const r = d.rows.find(r => r.id === id); if (r) r.h = h })
 
   const handleAddCard = (x, y, columnId, rowId) => {
@@ -141,13 +147,16 @@ export default function App() {
         {showSettings && isEditor
           ? <SettingsPanel
               state={state}
+              columns={columns}
               mut={mut}
+              onUpdateColumn={handleUpdateColumn}
               onClose={() => setShowSettings(false)}
             />
           : selectedCard
             ? <CardDetail
                 card={selectedCard}
                 allCards={state.cards}
+                columns={columns}
                 owners={state.owners}
                 tags={state.tags}
                 rows={state.rows}

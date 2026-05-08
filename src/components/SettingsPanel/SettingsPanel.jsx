@@ -1,5 +1,4 @@
 import { useState, useRef } from 'react'
-import { COLUMNS } from '../../constants/columns'
 import { uid } from '../../utils/uid'
 import { downloadCSV, importCSV } from '../../utils/csv'
 
@@ -309,25 +308,39 @@ function TagsSection({ tags, cards, onAdd, onUpdate, onDelete }) {
   )
 }
 
-// ── Sección: Columnas (solo lectura) ─────────────────────────────────────────
-function ColumnsSection() {
+// ── Sección: Columnas (label + acento editables) ──────────────────────────────
+function ColumnsSection({ columns, onUpdate }) {
   const [open, setOpen] = useState(false)
   return (
     <div>
-      <SectionHeader label="Columnas" open={open} onToggle={() => setOpen(o => !o)} count={COLUMNS.length} />
+      <SectionHeader label="Columnas" open={open} onToggle={() => setOpen(o => !o)} count={columns.length} />
       {open && (
         <div style={{ padding: '12px 16px' }}>
-          <div style={{ fontSize: 9, color: T.textGhost, marginBottom: 10 }}>
-            Las columnas son fijas en este sprint. No editables.
+          <div style={{ fontSize: 9, color: T.textGhost, marginBottom: 12 }}>
+            Edita el nombre y el color de cada columna. No se pueden añadir, eliminar ni reordenar.
           </div>
-          {COLUMNS.map(col => (
-            <div key={col.id} style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              marginBottom: 6, padding: '5px 8px', borderRadius: 5,
-              background: col.color, border: `1px solid ${col.border}`,
-            }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: col.hl }} />
-              <span style={{ fontSize: 11, color: col.hl, fontWeight: 600 }}>{col.label}</span>
+          {columns.map(col => (
+            <div key={col.id} style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                {/* Dot con color de acento actual */}
+                <div style={{ width: 10, height: 10, borderRadius: '50%',
+                  background: col.hl, flexShrink: 0,
+                  boxShadow: `0 0 4px ${col.hl}88` }} />
+                <TextInput
+                  value={col.label}
+                  onChange={v => onUpdate(col.id, 'label', v)}
+                  placeholder="Nombre de columna"
+                  style={{ flex: 1 }}
+                />
+              </div>
+              {/* Paleta de acento */}
+              <div style={{ marginLeft: 16, paddingLeft: 6,
+                borderLeft: `2px solid ${col.hl}33` }}>
+                <div style={{ fontSize: 8, color: T.textGhost, marginBottom: 5, letterSpacing: '0.5px' }}>
+                  COLOR DE ACENTO
+                </div>
+                <ColorPicker value={col.hl} onChange={v => onUpdate(col.id, 'hl', v)} />
+              </div>
             </div>
           ))}
         </div>
@@ -407,7 +420,7 @@ function SecuritySection({ passEditor, onChangePass }) {
 }
 
 // ── Sección: Datos ────────────────────────────────────────────────────────────
-function DataSection({ cards, onImport }) {
+function DataSection({ cards, columns, onImport }) {
   const [open,    setOpen]    = useState(false)
   const [mode,    setMode]    = useState('add')   // 'add' | 'replace'
   const [msg,     setMsg]     = useState(null)     // {type:'ok'|'err'|'warn', text}
@@ -415,7 +428,7 @@ function DataSection({ cards, onImport }) {
   const fileRef = useRef(null)
 
   const handleExport = () => {
-    downloadCSV(cards, `canvas-rrhh-${new Date().toISOString().slice(0,10)}.csv`)
+    downloadCSV(cards, columns, `canvas-rrhh-${new Date().toISOString().slice(0,10)}.csv`)
   }
 
   const handleFileChange = e => {
@@ -558,7 +571,7 @@ function DataSection({ cards, onImport }) {
 }
 
 // ── SettingsPanel ─────────────────────────────────────────────────────────────
-export default function SettingsPanel({ state, onClose, mut }) {
+export default function SettingsPanel({ state, columns = [], onUpdateColumn, onClose, mut }) {
   // ── Filas ─────────────────────────────────────────────────────────────────
   const addRow = () =>
     mut(d => d.rows.push({ id: uid(), label: 'Nueva fase', h: 200 }))
@@ -665,12 +678,12 @@ export default function SettingsPanel({ state, onClose, mut }) {
           onUpdate={updateTag}
           onDelete={deleteTag}
         />
-        <ColumnsSection />
+        <ColumnsSection columns={columns} onUpdate={onUpdateColumn} />
         <SecuritySection
           passEditor={state.passEditor}
           onChangePass={changePass}
         />
-        <DataSection cards={state.cards} onImport={importCards} />
+        <DataSection cards={state.cards} columns={columns} onImport={importCards} />
         <div style={{ height: 28 }} />
       </div>
     </div>
